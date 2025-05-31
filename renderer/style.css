@@ -1,0 +1,184 @@
+/* renderer/style.css */
+:root {
+	--primary-color: #007aff; /* A common, vibrant blue */
+	--primary-hover-color: #0056b3;
+	--secondary-color: #6c757d; /* Muted grey for secondary text */
+	--success-color: #28a745;
+	--warning-color: rgb(232, 175, 4);
+	--warning-text-color: #212529;
+	--danger-color: #dc3545;
+	--info-color: #17a2b8; /* For discovered state */
+	--light-bg: #f8f9fa;
+	--medium-bg: #e9ecef;
+	--dark-bg: #ffffff;
+	--text-color: #212529;
+	--heading-color: #343a40;
+	--border-color: #dee2e6;
+	--font-family-sans-serif: -apple-system, BlinkMacSystemFont, "Segoe UI",
+		Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif,
+		"Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+	--border-radius: 0.3rem;
+	--box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.07);
+}
+
+body {
+	font-family: var(--font-family-sans-serif);
+	margin: 0;
+	background-color: var(--light-bg);
+	color: var(--text-color);
+	line-height: 1.6;
+	display: flex;
+	justify-content: center;
+	padding: 20px;
+	min-height: calc(100vh - 40px); /* Account for padding */
+}
+
+.container {
+	background-color: var(--dark-bg);
+	padding: 25px 30px;
+	border-radius: var(--border-radius);
+	box-shadow: var(--box-shadow);
+	width: 100%;
+	max-width: 750px; /* Slightly wider for better layout */
+}
+
+h1 {
+	color: var(--heading-color);
+	font-size: 1.75em; /* Slightly larger */
+	margin-top: 0;
+	margin-bottom: 0.75em;
+	border-bottom: 1px solid var(--border-color);
+	padding-bottom: 0.5em;
+}
+
+h2 {
+	color: var(--heading-color);
+	font-size: 1.3em; /* Adjusted */
+	margin-top: 1.5em;
+	margin-bottom: 0.75em;
+	border-bottom: 1px solid var(--border-color);
+	padding-bottom: 0.4em;
+}
+
+p {
+	margin-bottom: 1em;
+}
+
+#apiUrl {
+	font-weight: 600; /* Semibold */
+	color: var(--primary-color);
+	font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier,
+		monospace;
+}
+
+.controls {
+	margin-bottom: 1.5em;
+}
+
+button#refreshButton {
+	/* Specificity for the button */
+	background-color: var(--primary-color);
+	color: white;
+	border: none;
+	padding: 0.6em 1.2em;
+	border-radius: var(--border-radius);
+	cursor: pointer;
+	font-size: 1em;
+	font-weight: 500;
+	transition: background-color 0.15s ease-in-out, transform 0.1s ease;
+}
+
+button#refreshButton:hover {
+	background-color: var(--primary-hover-color);
+}
+button#refreshButton:active {
+	transform: scale(0.98); /* Subtle press effect */
+}
+button#refreshButton:disabled {
+	background-color: var(--secondary-color);
+	opacity: 0.65;
+	cursor: not-allowed;
+}
+
+#statusMessage {
+	font-style: normal; /* Less emphasis than italic if its frequently updated */
+	color: var(--secondary-color);
+	background-color: var(--medium-bg);
+	padding: 0.75em 1em;
+	border-radius: var(--border-radius);
+	margin-bottom: 1.5em;
+	border-left: 4px solid var(--primary-color);
+}
+
+#printerList {
+	list-style-type: none;
+	padding: 0;
+	margin-top: 0.5em;
+}
+
+#printerList li {
+	background-color: var(--dark-bg); /* White background */
+	border: 1px solid var(--border-color); /* Clearer border */
+	margin-bottom: 0.6em;
+	padding: 0.9em 1.1em;
+	border-radius: var(--border-radius);
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	transition: box-shadow 0.15s ease-in-out;
+}
+#printerList li:hover {
+	box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.05);
+}
+
+#printerList li .details {
+	flex-grow: 1;
+	margin-right: 1em; /* Space before status */
+}
+#printerList li .details strong {
+	font-weight: 600; /* Semibold */
+	color: var(--heading-color);
+	display: block; /* Ensures it takes its own line for spacing if name is long */
+	margin-bottom: 0.1em;
+}
+#printerList li .details span {
+	/* For Type: xxx, ID: xxx */
+	font-size: 0.9em;
+	color: var(--secondary-color);
+}
+
+#printerList li .status {
+	font-weight: 500;
+	padding: 0.25em 0.75em; /* Adjust padding */
+	border-radius: 1em; /* More pill-like */
+	font-size: 0.8em; /* Slightly smaller */
+	min-width: 100px; /* Give it some space */
+	text-align: center;
+	white-space: nowrap; /* Prevent status text wrapping */
+}
+
+.status-connected {
+	background-color: var(--success-color);
+	color: white;
+}
+.status-discovered {
+	background-color: var(--info-color);
+	color: white;
+}
+.status-failed {
+	background-color: var(--danger-color);
+	color: white;
+}
+.status-testing {
+	background-color: var(--warning-color);
+	color: var(--warning-text-color);
+}
+
+/* Helper for no printers message */
+#printerList li.no-printers-message {
+	justify-content: center;
+	text-align: center;
+	color: var(--secondary-color);
+	background-color: var(--light-bg);
+	border-style: dashed;
+}

@@ -1,0 +1,9 @@
+# Node.js
+node_modules/
+dist/
+dist_os_mode/
+.env
+*.log
+
+# VSCode settings
+.vscode/

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+		/>
+		<title>POS Print Bridge Status</title>
+		<link rel="stylesheet" href="style.css" />
+	</head>
+	<body>
+		<div class="container">
+			<h1>POS Print Bridge</h1>
+			<p>
+				API for React POS running on:
+				<strong id="apiUrl">http://localhost:3030</strong>
+			</p>
+			<div class="controls">
+				<button id="refreshButton">Refresh Printer List</button>
+			</div>
+			<p id="statusMessage">Loading...</p>
+			<h2>Discovered Printers:</h2>
+			<ul id="printerList">
+				<!-- Printers will be listed here -->
+			</ul>
+		</div>
+		<script src="./render.js"></script>
+	</body>
+</html>

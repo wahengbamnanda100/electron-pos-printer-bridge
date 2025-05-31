@@ -1,0 +1,58 @@
+{
+	"name": "eletron-printer-bridge",
+	"version": "1.0.0",
+	"description": "Electron bridge for POS printing (Electron getPrinters Mode)",
+	"main": "src/electron-main.js",
+	"type": "module",
+	"scripts": {
+		"start": "electron .",
+		"dev": "nodemon --exec electron .",
+		"dist": "electron-builder"
+	},
+	"dependencies": {
+		"bonjour": "^3.5.0",
+		"express": "^4.19.2",
+		"cors": "^2.8.5",
+		"body-parser": "^1.20.2",
+		"node-thermal-printer": "^4.1.2"
+	},
+	"devDependencies": {
+		"electron": "^29.0.0",
+		"electron-builder": "^24.9.1",
+		"nodemon": "^3.0.0"
+	},
+	"build": {
+		"appId": "com.yourcompany.posprintbridge.osmode",
+		"productName": "POS Print Bridge (OS Mode)",
+		"directories": {
+			"output": "dist_os_mode"
+		},
+		"files": [
+			"src/**/*",
+			"renderer/**/*",
+			"preload.js",
+			"package.json"
+		],
+		"win": {
+			"target": "nsis",
+			"icon": "build/icon.ico"
+		},
+		"mac": {
+			"target": "dmg",
+			"icon": "build/icon.icns"
+		},
+		"linux": {
+			"target": [
+				"AppImage",
+				"deb"
+			],
+			"icon": "build/icons"
+		},
+		"nsis": {
+			"oneClick": false,
+			"allowToChangeInstallationDirectory": true,
+			"perMachine": false,
+			"createDesktopShortcut": true
+		}
+	}
+}
