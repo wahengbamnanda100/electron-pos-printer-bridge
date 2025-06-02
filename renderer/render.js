@@ -7,11 +7,57 @@ const apiUrlEl = document.getElementById("apiUrl");
 // Assuming API URL is fixed for now, or will be set by main process.
 // apiUrlEl.textContent = `http://localhost:${process.env.API_PORT || 3030}`;
 
+// function updatePrinterList(printers) {
+// 	printerListUl.innerHTML = ""; // Clear old list
+// 	if (!printers || printers.length === 0) {
+// 		const li = document.createElement("li");
+// 		li.classList.add("no-printers-message"); // Uses the class from style.css
+// 		li.textContent = "No printers found. Try refreshing or check connections.";
+// 		printerListUl.appendChild(li);
+// 		return;
+// 	}
+// 	printers.forEach((printer) => {
+// 		const li = document.createElement("li");
+// 		let statusClass = "";
+// 		switch (printer.status?.toLowerCase()) {
+// 			case "connected":
+// 				statusClass = "status-connected";
+// 				break;
+// 			case "discovered":
+// 			case "discovered (usb)":
+// 			case "discovered (lan)":
+// 				statusClass = "status-discovered";
+// 				break;
+// 			case "connection failed":
+// 			case "connection failed (device not found by adapter)":
+// 			case "connection failed (not found/driver)":
+// 			case "error":
+// 				statusClass = "status-failed";
+// 				break;
+// 			default:
+// 				if (printer.status && printer.status.toLowerCase().includes("error")) {
+// 					statusClass = "status-failed";
+// 				} else {
+// 					statusClass = "status-testing";
+// 				}
+// 		}
+// 		li.innerHTML = `
+//             <div class="details">
+//                 <strong>${printer.name}</strong> (ID: ${printer.id})<br>
+//                 Type: ${printer.type}
+//             </div>
+//             <span class="status ${statusClass}">${
+// 			printer.status || "Unknown"
+// 		}</span>`;
+// 		printerListUl.appendChild(li);
+// 	});
+// }
+
 function updatePrinterList(printers) {
-	printerListUl.innerHTML = ""; // Clear old list
+	printerListUl.innerHTML = "";
 	if (!printers || printers.length === 0) {
 		const li = document.createElement("li");
-		li.classList.add("no-printers-message"); // Uses the class from style.css
+		li.classList.add("no-printers-message");
 		li.textContent = "No printers found. Try refreshing or check connections.";
 		printerListUl.appendChild(li);
 		return;
@@ -19,32 +65,33 @@ function updatePrinterList(printers) {
 	printers.forEach((printer) => {
 		const li = document.createElement("li");
 		let statusClass = "";
-		switch (printer.status?.toLowerCase()) {
+		switch (
+			printer.status?.toLowerCase() /* ... (status class logic as before) ... */
+		) {
 			case "connected":
 				statusClass = "status-connected";
 				break;
 			case "discovered":
-			case "discovered (usb)":
-			case "discovered (lan)":
 				statusClass = "status-discovered";
 				break;
+			case "ready (virtual)":
+				statusClass = "status-virtual";
+				break; // New status for virtual
 			case "connection failed":
-			case "connection failed (device not found by adapter)":
-			case "connection failed (not found/driver)":
-			case "error":
 				statusClass = "status-failed";
 				break;
 			default:
-				if (printer.status && printer.status.toLowerCase().includes("error")) {
+				if (printer.status && printer.status.toLowerCase().includes("error"))
 					statusClass = "status-failed";
-				} else {
-					statusClass = "status-testing";
-				}
+				else statusClass = "status-testing";
 		}
+
 		li.innerHTML = `
             <div class="details">
-                <strong>${printer.name}</strong> (ID: ${printer.id})<br>
-                Type: ${printer.type}
+                <strong>${printer.name} ${
+			printer.isVirtual ? "(Virtual)" : ""
+		}</strong> (ID: ${printer.id})<br>
+                Type: ${printer.type} ${printer.isVirtual ? "- Virtual" : ""}
             </div>
             <span class="status ${statusClass}">${
 			printer.status || "Unknown"

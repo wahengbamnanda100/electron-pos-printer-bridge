@@ -2,100 +2,115 @@
 import { PrinterTypes, ThermalPrinter } from "node-thermal-printer";
 import Bonjour from "bonjour";
 
-const bonjourService = Bonjour(); // Create a single instance
+const bonjourService = Bonjour(); // Single instance for Bonjour service
 
-// ... (discoverLanPrintersViaMDNS function as before) ...
 export async function discoverLanPrintersViaMDNS() {
 	return new Promise((resolve) => {
 		const lanPrinters = [];
 		let scanTimeoutOccurred = false;
-		const discoveryDuration = 10000;
+		const discoveryDuration = 10000; // 10 seconds for discovery
 
 		console.log(
 			`mDNS: Scanning for LAN printers (approx ${discoveryDuration / 1000}s)...`
 		);
 
 		const handleService = (service, discoveryMethod) => {
-			if (scanTimeoutOccurred) return;
+			if (scanTimeoutOccurred) return; // Stop processing if scan duration is over
+
 			if (
 				service.addresses &&
 				service.addresses.length > 0 &&
 				service.port &&
 				service.name
 			) {
+				// Prioritize IPv4, exclude link-local IPv6, then any other, then first as fallback
 				const ipAddress =
 					service.addresses.find(
 						(addr) => addr.includes(".") && !addr.startsWith("fe80:")
 					) ||
 					service.addresses.find((addr) => !addr.startsWith("fe80:")) ||
 					service.addresses[0];
+
 				if (!ipAddress) {
+					// Should be rare if service.addresses has items
 					console.warn(
 						`mDNS: Service '${
 							service.name
-						}' found without a suitable IP address. Addresses: ${service.addresses.join(
+						}' (Method: ${discoveryMethod}) found without a suitable IP. Addresses: ${service.addresses.join(
 							", "
 						)}`
 					);
 					return;
 				}
+
+				// Create a more robust ID, replacing potentially problematic characters for URLs/filenames
 				const printerId = `lan_mdns-${ipAddress.replace(/[.:]/g, "_")}-${
 					service.port
-				}`;
+				}-${discoveryMethod.replace(/[^\w]/g, "_")}`;
+
 				if (!lanPrinters.some((p) => p.id === printerId)) {
+					// Avoid duplicates from same mDNS scan
 					const newPrinter = {
 						id: printerId,
 						name: `${service.name} @ ${ipAddress}:${service.port}`,
-						type: "lan_mdns",
+						type: "lan_mdns", // Distinct type for mDNS discovered printers
 						ip: ipAddress,
 						port: service.port,
-						status: "Discovered (mDNS)",
-						host: service.host,
-						txt: service.txt,
-						discoveryMethod: discoveryMethod,
+						status: "Discovered (mDNS)", // Initial status
+						host: service.host, // Fully Qualified Domain Name (e.g., MyPrinter.local.)
+						txt: service.txt, // TXT record data from Bonjour
+						discoveryMethod: discoveryMethod, // Which Bonjour service type found it
 					};
 					lanPrinters.push(newPrinter);
 					console.log(
-						`mDNS: Discovered '${newPrinter.name}' via ${discoveryMethod}`
+						`mDNS: Discovered '${newPrinter.name}' via Bonjour service type '${discoveryMethod}'`
 					);
 				}
 			}
 		};
 
-		const pdlBrowser = bonjourService.find({ type: "pdl-datastream" }, (s) =>
-			handleService(s, "pdl-datastream")
-		);
-		const ippBrowser = bonjourService.find({ type: "ipp" }, (s) =>
-			handleService(s, "ipp")
-		);
-		const socketBrowser = bonjourService.find({ type: "socket" }, (s) =>
-			handleService(s, "socket")
-		);
-		const rawPortPrinterBrowser = bonjourService.find(
-			{ type: "printer" },
-			(s) => {
-				if (s.port === 9100) handleService(s, "raw-9100-printer-type");
+		// List of common Bonjour service types for printers
+		const serviceTypesToQuery = [
+			{ type: "pdl-datastream", name: "PDL Data Stream" }, // Raw Port, often 9100
+			{ type: "ipp", name: "IPP/IPPS" }, // Internet Printing Protocol
+			{ type: "ipps", name: "IPP/IPPS Secure" }, // Secure IPP
+			{ type: "socket", name: "Socket API / JetDirect" }, // HP JetDirect or similar
+			{ type: "printer", name: "LPR/LPD or Raw (Port 9100 specific)" }, // Generic printer, often LPR or raw, we filter for port 9100 for this
+			{ type: "lpd", name: "LPD/LPR" }, // Line Printer Daemon
+		];
+
+		const browsers = serviceTypesToQuery.map((st) => {
+			if (st.type === "printer") {
+				// Special handling for generic 'printer' to filter by port 9100
+				return bonjourService.find({ type: st.type }, (s) => {
+					if (s.port === 9100) handleService(s, `${st.name} (Port ${s.port})`);
+				});
 			}
-		);
-		const lpdBrowser = bonjourService.find({ type: "lpd" }, (s) =>
-			handleService(s, "lpd")
-		);
+			return bonjourService.find({ type: st.type }, (s) =>
+				handleService(s, st.name)
+			);
+		});
 
 		setTimeout(() => {
-			if (scanTimeoutOccurred) return;
+			if (scanTimeoutOccurred) return; // Prevent multiple executions of this block
 			scanTimeoutOccurred = true;
-			console.log("mDNS: Stopping service browsers...");
-			try {
-				if (pdlBrowser) pdlBrowser.stop();
-				if (ippBrowser) ippBrowser.stop();
-				if (socketBrowser) socketBrowser.stop();
-				if (rawPortPrinterBrowser) rawPortPrinterBrowser.stop();
-				if (lpdBrowser) lpdBrowser.stop();
-			} catch (e) {
-				console.error("mDNS: Error stopping browsers:", e);
-			}
+
 			console.log(
-				`mDNS: LAN printer scan complete. Found ${lanPrinters.length} printers.`
+				"mDNS: Scan duration elapsed. Stopping Bonjour service browsers..."
+			);
+			browsers.forEach((browser, index) => {
+				try {
+					if (browser) browser.stop();
+				} catch (e) {
+					console.error(
+						`mDNS: Error stopping browser for service type '${serviceTypesToQuery[index].type}':`,
+						e.message
+					);
+				}
+			});
+
+			console.log(
+				`mDNS: LAN printer scan complete. Discovered ${lanPrinters.length} potential printers.`
 			);
 			resolve(lanPrinters);
 		}, discoveryDuration);
@@ -103,89 +118,109 @@ export async function discoverLanPrintersViaMDNS() {
 }
 
 export async function testPrinterConnection(printerConfig) {
+	// This function is now primarily called for physical printers, as electron-main.js
+	// already sets the status for virtual printers.
 	console.log(
-		`TESTING CONNECTION: '${printerConfig.name}' (Type: ${printerConfig.type})`
+		`TESTING PHYSICAL CONNECTION: '${printerConfig.name}' (Type: ${printerConfig.type})`
 	);
-	console.log(JSON.stringify(printerConfig, null, 2));
-	let thermalPrinter;
-	let interfaceOpt = "N/A (not determined before error)"; // Initialize to a default string
+	// console.log("Full printerConfig for testing:", JSON.stringify(printerConfig, null, 2)); // Uncomment for deep debug
+
+	let thermalPrinterInstance; // Use a distinct variable name
+	let interfaceToTest = "N/A (Interface not determined before error)"; // Initialize for logging in catch
 
 	try {
-		const printerDriverType = printerConfig.driverType || PrinterTypes.EPSON;
-		const timeout = printerConfig.timeout || 3500;
+		// Determine driver type, defaulting to EPSON. This could be part of printerConfig if known.
+		const printerDriverTypeForTest =
+			printerConfig.driverType || PrinterTypes.EPSON;
+		const connectionTimeout = printerConfig.timeout || 3500; // Milliseconds
 
-		if (printerConfig.type === "electron_os") {
+		if (printerConfig.type === "electron_os" && !printerConfig.isVirtual) {
+			// Only test physical OS printers
 			if (!printerConfig.osName) {
 				console.error(
-					`TESTING ERROR: Printer '${printerConfig.name}' is type 'electron_os' but missing 'osName'.`
+					`TESTING ERROR (Physical OS): Printer '${printerConfig.name}' is missing 'osName'.`
 				);
-				return { ...printerConfig, status: "Config Error (No osName)" };
+				return { ...printerConfig, status: "Config Error (Missing osName)" };
 			}
-			interfaceOpt = `printer:${printerConfig.osName}`; // interfaceOpt is assigned
+			interfaceToTest = `printer:${printerConfig.osName}`;
 		} else if (printerConfig.type === "lan_mdns") {
+			// Assumed physical
 			if (!printerConfig.ip || !printerConfig.port) {
 				console.error(
-					`TESTING ERROR: Printer '${printerConfig.name}' is type 'lan_mdns' but missing 'ip' or 'port'.`
+					`TESTING ERROR (mDNS): Printer '${printerConfig.name}' is missing 'ip' or 'port'.`
 				);
-				return { ...printerConfig, status: "Config Error (No IP/Port)" };
+				return { ...printerConfig, status: "Config Error (Missing IP/Port)" };
 			}
-			interfaceOpt = `tcp://${printerConfig.ip}:${printerConfig.port}`; // interfaceOpt is assigned
+			interfaceToTest = `tcp://${printerConfig.ip}:${printerConfig.port}`;
+		} else if (printerConfig.isVirtual) {
+			// This case should not be reached if electron-main.js correctly filters
+			console.log(
+				`TESTING INFO: '${printerConfig.name}' is virtual. Connection test via node-thermal-printer skipped by design.`
+			);
+			return { ...printerConfig, status: "Ready (Virtual)" }; // Confirm its status
 		} else {
 			console.warn(
-				`TESTING WARNING: Unsupported or unknown printer type '${printerConfig.type}' for '${printerConfig.name}'. Cannot test connection reliably.`
+				`TESTING WARNING: Unsupported type '${printerConfig.type}' for physical connection test of '${printerConfig.name}'.`
 			);
-			// In this 'else' case, if it directly returns, interfaceOpt remains 'N/A...'
-			// and won't cause a ReferenceError in the catch block IF the error happens *after* this point.
-			// But if the error happened *before* this if/else if structure, then interfaceOpt would be undefined.
 			return {
 				...printerConfig,
-				status: `Unsupported Type (${printerConfig.type})`,
+				status: `Unsupported Type for Test (${printerConfig.type})`,
 			};
 		}
 
 		console.log(
-			`TESTING: Attempting to connect to '${printerConfig.name}' using interface: '${interfaceOpt}' with type '${printerDriverType}'.`
+			`TESTING: Attempting node-thermal-printer connection for '${printerConfig.name}' using interface: '${interfaceToTest}', driver: '${printerDriverTypeForTest}'.`
 		);
 
-		thermalPrinter = new ThermalPrinter({
-			type: printerDriverType,
-			interface: interfaceOpt, // Now interfaceOpt is guaranteed to have a value when used here
-			timeout: timeout,
+		thermalPrinterInstance = new ThermalPrinter({
+			type: printerDriverTypeForTest,
+			interface: interfaceToTest,
+			timeout: connectionTimeout,
+			// characterSet: CharacterSet.SLOVENIA, // Optional: can be set globally or per print job
 		});
 
-		const isConnected = await thermalPrinter.isPrinterConnected();
+		// isPrinterConnected() sends a basic status command to check reachability.
+		const isConnected = await thermalPrinterInstance.isPrinterConnected();
 
 		if (isConnected) {
 			console.log(
-				`TESTING SUCCESS: 'isPrinterConnected' returned true for '${printerConfig.name}'.`
+				`TESTING SUCCESS: 'isPrinterConnected' for '${printerConfig.name}' returned true.`
 			);
 			return { ...printerConfig, status: "Connected" };
 		} else {
 			console.log(
-				`TESTING FAIL: 'isPrinterConnected' returned false for '${printerConfig.name}'. Potential connection issue or printer status response.`
+				`TESTING FAIL: 'isPrinterConnected' for '${printerConfig.name}' returned false. Printer might be offline, busy, or not responsive to status commands.`
 			);
 			return { ...printerConfig, status: "Connection Failed" };
 		}
 	} catch (error) {
-		// Now, 'interfaceOpt' will have the value it had when the error occurred, or 'N/A...' if it wasn't set in the try.
+		// Log the error with context.
 		console.error(
-			`TESTING EXCEPTION for '${printerConfig.name}' (attempted interface: '${interfaceOpt}'): ${error.message}`,
-			error.stack ? error.stack.split("\n").slice(0, 3).join("\n") : ""
-		);
-		const errorMsg = error.message || "Unknown connection error";
-		return { ...printerConfig, status: `Error (${errorMsg.substring(0, 60)})` };
+			`TESTING EXCEPTION for '${printerConfig.name}' (Attempted Interface: '${interfaceToTest}'): ${error.message}`,
+			error.stack
+				? error.stack.split("\n").slice(0, 4).join("\n")
+				: "(No stack trace)"
+		); // Log first few lines of stack
+		const briefErrorMsg = error.message
+			? error.message.substring(0, 70)
+			: "Unknown connection error";
+		return { ...printerConfig, status: `Error (${briefErrorMsg})` };
 	}
 }
 
 export function destroyBonjour() {
 	if (bonjourService) {
 		try {
+			// According to bonjour-service (which is what `bonjour` npm package might wrap or be similar to)
+			// destroying the main instance should stop all browsers.
 			bonjourService.destroy();
-			console.log("Bonjour service instance destroyed successfully.");
+			console.log(
+				"Bonjour service instance and all its browsers destroyed successfully."
+			);
 		} catch (e) {
 			console.error(
-				"Error occurred while trying to destroy Bonjour service:",
-				e
+				"Error occurred while trying to destroy Bonjour service instance:",
+				e.message
 			);
 		}
 	} else {

@@ -157,6 +157,11 @@ button#refreshButton:disabled {
 	white-space: nowrap; /* Prevent status text wrapping */
 }
 
+.status-virtual {
+	background-color: #6c757d; /* A muted grey, similar to secondary color */
+	color: white;
+}
+
 .status-connected {
 	background-color: var(--success-color);
 	color: white;

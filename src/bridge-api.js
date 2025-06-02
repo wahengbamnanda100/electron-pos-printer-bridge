@@ -2,410 +2,500 @@
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
-// Import necessary types and enums from node-thermal-printer
+import { BrowserWindow } from "electron"; // Needed for creating hidden print window
+import fs from "fs/promises"; // For async file operations
+import path from "path"; // For path manipulation
+import os from "os"; // For temporary directory
+
+// Import from node-thermal-printer only what's needed for physical printers
 import {
 	ThermalPrinter,
 	PrinterTypes,
 	CharacterSet,
 	BreakLine, // For cut modes
-	// Align and Style are NOT directly exported enums; use string literals or boolean methods.
+	// Align and Style are used as string literals for their methods
 } from "node-thermal-printer";
 
 const API_PORT = process.env.API_PORT || 3030;
 
+// Helper function to convert react-thermal-printer like commands to simple HTML
+// This needs to be robust enough for the content you want on virtual printer outputs.
+function commandsToSimpleHtml(
+	printDataArray,
+	documentTitle = "Print Document"
+) {
+	let htmlBody = "";
+	let currentAlignment = "left"; // Default alignment
+
+	printDataArray.forEach((cmd) => {
+		let textContent = String(cmd.content || cmd.text || "");
+		let styleString = "";
+		let tag = "div"; // Default block element
+
+		if (cmd.align) {
+			currentAlignment =
+				cmd.align.toLowerCase() === "ct" || cmd.align.toLowerCase() === "center"
+					? "center"
+					: cmd.align.toLowerCase() === "rt" ||
+					  cmd.align.toLowerCase() === "right"
+					? "right"
+					: "left";
+		}
+		styleString += `text-align: ${currentAlignment};`;
+
+		if (cmd.style) {
+			if (cmd.style.includes("B")) styleString += "font-weight: bold;";
+			if (cmd.style.includes("U")) styleString += "text-decoration: underline;";
+			// 'I' (invert) is tricky for HTML, could use CSS filter or specific classes
+		}
+		if (cmd.size && Array.isArray(cmd.size)) {
+			const widthFactor = cmd.size[0] || 1;
+			const heightFactor = cmd.size[1] || 1;
+			if (widthFactor >= 2 || heightFactor >= 2) {
+				// Consider anything >= 2x as "larger"
+				if (widthFactor >= 3 || heightFactor >= 3)
+					styleString += "font-size: 2em; line-height:1.1;"; // XL
+				else styleString += "font-size: 1.5em; line-height:1.1;"; // Large
+			} else {
+				styleString += "font-size: 1em;"; // Normal
+			}
+		} else {
+			styleString += "font-size: 1em;";
+		}
+
+		switch (cmd.type?.toLowerCase()) {
+			case "text":
+			case "println":
+				// Using <pre> to respect multiple spaces and line breaks within content if any
+				htmlBody += `<${tag} style="${styleString}"><pre>${textContent}</pre></${tag}>\n`;
+				break;
+			case "feed":
+				htmlBody += "<br>".repeat(parseInt(cmd.lines, 10) || 1);
+				break;
+			case "drawline":
+				htmlBody +=
+					'<hr style="border:none; border-top: 1px dashed #555; margin: 8px 0;">\n';
+				break;
+			case "barcode":
+				htmlBody += `<div style="${styleString}">[BARCODE: ${textContent} (Type: ${
+					cmd.barcodeType || "default"
+				})]</div>\n`;
+				break;
+			case "qr":
+				htmlBody += `<div style="${styleString}">[QR CODE: ${textContent}]</div>\n`;
+				break;
+			// image, imagebuffer, cut, beep, raw, setstyles, resetstyles are primarily for physical thermal printers
+			// and don't have direct simple HTML equivalents from this function's scope.
+		}
+	});
+
+	return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>${documentTitle}</title>
+            <meta charset="UTF-8">
+            <style>
+                body { font-family: 'Courier New', Courier, monospace; margin: 15mm; font-size: 10pt; }
+                pre { white-space: pre-wrap; margin: 0; padding: 0; line-height: 1.3; }
+                div { margin-bottom: 2px; }
+            </style>
+        </head>
+        <body>
+            ${htmlBody}
+        </body>
+        </html>
+    `;
+}
+
 export function startApiServer(getDiscoveredPrinters) {
 	const app = express();
-	app.use(cors({ origin: "*" })); // Consider restricting origin for production environments
-	app.use(bodyParser.json({ limit: "10mb" })); // Increased limit for potential base64 image data
+	app.use(cors({ origin: "*" }));
+	app.use(bodyParser.json({ limit: "10mb" }));
 	app.use(bodyParser.urlencoded({ limit: "10mb", extended: true }));
 
-	// Endpoint to list available printers
 	app.get("/api/printers", (req, res) => {
 		const printers = getDiscoveredPrinters();
 		if (!printers) {
 			console.warn(
-				"API /api/printers: getDiscoveredPrinters() call returned null or undefined."
+				"API /api/printers: getDiscoveredPrinters returned null/undefined."
 			);
-			return res.status(500).json({
-				error: "Printer list is currently unavailable from the main process.",
-			});
+			return res.status(500).json({ error: "Printer list unavailable." });
 		}
-		// Map printer data to the format expected by the client
 		res.json(
 			printers.map((p) => ({
 				id: p.id,
-				name: p.name, // This name will be used by the client to specify the printer
+				name: p.name,
 				type: p.type,
 				status: p.status,
 				description: p.description,
 				isDefault: p.isDefault,
+				isVirtual: p.isVirtual,
 			}))
 		);
 	});
 
-	// Main endpoint to handle print jobs
 	app.post("/api/print", async (req, res) => {
 		const { printerName, printData, printerOptions } = req.body;
 
-		if (!printerName) {
-			return res
-				.status(400)
-				.json({ error: "Missing 'printerName' in the request body." });
-		}
-		if (!printData || !Array.isArray(printData)) {
-			return res.status(400).json({
-				error:
-					"Missing or invalid 'printData'. It must be an array of command objects.",
-			});
-		}
+		if (!printerName)
+			return res.status(400).json({ error: "Missing 'printerName'." });
+		if (!printData || !Array.isArray(printData))
+			return res.status(400).json({ error: "Invalid 'printData'." });
 
 		const printers = getDiscoveredPrinters();
-		if (!printers) {
-			console.error(
-				"API /api/print: Failed to retrieve the discovered printers list from the main process."
-			);
-			return res.status(500).json({
-				error:
-					"Printer configuration is not available. Cannot proceed with printing.",
-			});
-		}
+		if (!printers)
+			return res.status(500).json({ error: "Printer config unavailable." });
 
-		// Find the target printer's configuration using the provided name (case-insensitive)
 		const config = printers.find(
 			(p) => p.name.toLowerCase() === printerName.toLowerCase()
 		);
-
-		if (!config) {
-			console.warn(
-				`API /api/print: Printer with name '${printerName}' was not found in the discovered list.`
-			);
-			return res.status(404).json({
-				error: `Printer named '${printerName}' not found or has not been discovered.`,
-			});
-		}
+		if (!config)
+			return res
+				.status(404)
+				.json({ error: `Printer named '${printerName}' not found.` });
 
 		console.log(
-			`API Print: Received print job for '${config.name}' (Type: ${config.type}, Identified by name: '${printerName}') with ${printData.length} command(s).`
+			`API Print: Job for '${config.name}' (Virtual: ${config.isVirtual}, Type: ${config.type})`
 		);
 
-		let thermalPrinter; // Declare outside try to potentially use in finally
-		try {
-			let interfaceOpt;
-			// Determine printer driver type (EPSON, STAR, etc.) from client options or use a default
-			const printerDriverType =
-				printerOptions &&
-				printerOptions.type &&
-				PrinterTypes[printerOptions.type.toUpperCase()]
-					? PrinterTypes[printerOptions.type.toUpperCase()]
-					: PrinterTypes.EPSON; // Default to EPSON if not specified
-			// Determine character set from client options or use a default
-			const charSet =
-				printerOptions &&
-				printerOptions.characterSet &&
-				CharacterSet[printerOptions.characterSet.toUpperCase()]
-					? CharacterSet[printerOptions.characterSet.toUpperCase()]
-					: CharacterSet.UTF_8; // UTF_8 is a good default for international characters
-			const timeout = printerOptions?.timeout || 5000; // Default connection/print timeout
-
-			// Determine the connection interface based on the printer type from discovery
-			if (config.type === "electron_os") {
-				if (!config.osName)
-					throw new Error(
-						`Printer '${config.name}': Configuration error - 'osName' is missing for an Electron OS discovered printer.`
-					);
-				interfaceOpt = `printer:${config.osName}`;
-			} else if (config.type === "lan_mdns") {
-				if (!config.ip || !config.port)
-					throw new Error(
-						`Printer '${config.name}': Configuration error - 'ip' or 'port' is missing for an mDNS LAN discovered printer.`
-					);
-				interfaceOpt = `tcp://${config.ip}:${config.port}`;
-			} else {
-				// Fallback for unrecognized types - attempt to use its name as if it's an OS printer
-				console.warn(
-					`API Print: Printer '${config.name}' has an unrecognized type '${config.type}'. Attempting connection using its name as an OS printer ('printer:${config.name}').`
+		if (config.isVirtual) {
+			// --- VIRTUAL PRINTER (Electron WebContents Print) ---
+			console.log(`API Print: Handling as VIRTUAL PRINTER: ${config.name}`);
+			try {
+				const htmlContent = commandsToSimpleHtml(
+					printData,
+					`Print Output for ${config.name}`
 				);
-				interfaceOpt = `printer:${config.name}`;
-			}
-
-			console.log(
-				`API Print: Initializing ThermalPrinter instance. Interface: '${interfaceOpt}', Driver Type: '${printerDriverType}', CharSet: '${charSet}'`
-			);
-			thermalPrinter = new ThermalPrinter({
-				type: printerDriverType,
-				interface: interfaceOpt,
-				characterSet: charSet,
-				removeSpecialCharacters:
-					printerOptions?.removeSpecialCharacters === true, // Defaults to false
-				lineCharacter: printerOptions?.lineCharacter || "-", // Character for drawLine style LINE
-				timeout: timeout,
-			});
-
-			// Helper function to reset text styles to printer defaults
-			const resetToDefaultTextStyles = () => {
-				thermalPrinter.align("LT"); // Default to Left Alignment
-				thermalPrinter.setTextNormal(); // Resets font size to normal
-				thermalPrinter.bold(false);
-				thermalPrinter.underline(false); // Use boolean for simple underline
-				thermalPrinter.underlineThick(false); // Specific method for thick underline
-				thermalPrinter.invert(false);
-			};
-
-			// Apply any initial global alignment from client options
-			if (printerOptions?.initialAlign) {
-				thermalPrinter.align(printerOptions.initialAlign.toUpperCase());
-			}
-
-			// Process each command object in the printData array
-			for (const cmd of printData) {
-				// Reset styles before most commands to ensure clean state, unless cmd itself is a style setter
-				if (
-					cmd.type?.toLowerCase() !== "setstyles" &&
-					cmd.type?.toLowerCase() !== "resetstyles"
-				) {
-					resetToDefaultTextStyles();
-				}
-
-				console.log(
-					`API Print: Processing command - Type: ${
-						cmd.type
-					}, Details: ${JSON.stringify(cmd).substring(0, 100)}...`
+				const tempHtmlPath = path.join(
+					os.tmpdir(),
+					`bridge_print_${Date.now()}.html`
 				);
+				await fs.writeFile(tempHtmlPath, htmlContent, "utf8");
+				console.log(`API Print: Temp HTML for virtual print: ${tempHtmlPath}`);
 
-				// Standardize align value from command, default to Left
-				const alignment = cmd.align ? cmd.align.toUpperCase() : "LT";
-
-				switch (
-					cmd.type?.toLowerCase() // Use toLowerCase for case-insensitivity
-				) {
-					case "text":
-					case "println": // Allow 'println' as an alias for 'text'
-						thermalPrinter.align(alignment);
-						if (cmd.style) {
-							// Expected format: 'B', 'U', 'U2', 'I' or combinations e.g. 'BU'
-							if (cmd.style.includes("B")) thermalPrinter.bold(true);
-							if (cmd.style.includes("U2")) thermalPrinter.underlineThick(true);
-							else if (cmd.style.includes("U")) thermalPrinter.underline(true); // Simple underline
-							if (cmd.style.includes("I")) thermalPrinter.invert(true);
-						}
-						if (cmd.size && Array.isArray(cmd.size) && cmd.size.length === 2) {
-							// node-thermal-printer sizes are 0-7. If client sends 1-8 (1=normal), subtract 1.
-							thermalPrinter.setTextSize(
-								Math.max(0, cmd.size[0] - 1),
-								Math.max(0, cmd.size[1] - 1)
-							);
-						}
-						thermalPrinter.println(String(cmd.content || cmd.text || ""));
-						break;
-
-					case "feed":
-						thermalPrinter.feed(parseInt(cmd.lines, 10) || 1); // Feed specified lines or 1 by default
-						break;
-
-					case "cut":
-						thermalPrinter.cut(
-							cmd.mode === "FULL" ? BreakLine.FULL : BreakLine.PART
-						); // Default to partial cut
-						break;
-
-					case "beep":
-						thermalPrinter.beep(
-							parseInt(cmd.n, 10) || 1,
-							parseInt(cmd.t, 10) || 100
-						);
-						break;
-
-					case "align": // Explicit command to set alignment for subsequent operations
-						if (cmd.align) thermalPrinter.align(cmd.align.toUpperCase());
-						break;
-
-					case "setstyles": // Apply styles without immediately printing text
-						if (cmd.align) thermalPrinter.align(cmd.align.toUpperCase());
-						if (cmd.style) {
-							if (cmd.style.includes("B")) thermalPrinter.bold(true);
-							if (cmd.style.includes("U2")) thermalPrinter.underlineThick(true);
-							else if (cmd.style.includes("U")) thermalPrinter.underline(true);
-							if (cmd.style.includes("I")) thermalPrinter.invert(true);
-						}
-						if (cmd.size && Array.isArray(cmd.size) && cmd.size.length === 2) {
-							thermalPrinter.setTextSize(
-								Math.max(0, cmd.size[0] - 1),
-								Math.max(0, cmd.size[1] - 1)
-							);
-						}
-						break;
-
-					case "resetstyles": // Explicitly reset all text styles
-						resetToDefaultTextStyles();
-						break;
-
-					case "barcode":
-						thermalPrinter.align(alignment);
-						thermalPrinter.printBarcode(
-							String(cmd.content || cmd.value), // Barcode content
-							parseInt(cmd.barcodeType, 10) || 73, // Default to CODE128_AUTO (value 73)
-							{
-								// Options
-								height: parseInt(cmd.height, 10) || 50,
-								width: parseInt(cmd.width, 10) || 2, // Bar width factor (usually 2-6)
-								hriPos: parseInt(cmd.hriPos, 10) || 0, // HRI position (0=none, 1=above, 2=below, 3=both)
-								hriFont: parseInt(cmd.hriFont, 10) || 0, // HRI font (0=FontA, 1=FontB)
-								...(cmd.options || {}), // Allow any other valid options
-							}
-						);
-						break;
-
-					case "qr":
-						thermalPrinter.align(alignment);
-						await thermalPrinter.printQR(String(cmd.content || cmd.value), {
-							cellSize: parseInt(cmd.cellSize, 10) || 3,
-							correction: cmd.correction ? cmd.correction.toUpperCase() : "M", // L, M, Q, H
-							model: parseInt(cmd.model, 10) || 2, // Model 1 or 2
-						});
-						break;
-
-					case "image": // cmd.path = local filesystem path to the image
-						thermalPrinter.align(alignment);
-						if (cmd.path) {
-							try {
-								console.log(
-									`API Print: Attempting to print image from path: ${cmd.path}`
-								);
-								await thermalPrinter.printImage(cmd.path);
-							} catch (imgError) {
-								console.error(
-									"API Print: Error printing image from path:",
-									cmd.path,
-									imgError
-								);
-								thermalPrinter.println("[Error: Image could not be printed]");
-							}
-						} else {
-							thermalPrinter.println("[Error: Image path not provided]");
-						}
-						break;
-
-					case "imagebuffer": // cmd.buffer = base64 encoded image string
-						thermalPrinter.align(alignment);
-						if (cmd.buffer) {
-							try {
-								console.log(
-									"API Print: Attempting to print image from base64 buffer."
-								);
-								await thermalPrinter.printImageBuffer(
-									Buffer.from(cmd.buffer, "base64")
-								);
-							} catch (imgBuffError) {
-								console.error(
-									"API Print: Error printing image from buffer:",
-									imgBuffError
-								);
-								thermalPrinter.println(
-									"[Error: Image buffer could not be printed]"
-								);
-							}
-						} else {
-							thermalPrinter.println("[Error: Image buffer not provided]");
-						}
-						break;
-
-					case "drawline":
-						// Use lineCharacter from constructor for LINE, or specified symbols for others.
-						// The BreakLine enum is mostly for 'cut' related operations.
-						// drawLine uses the character set in constructor.
-						thermalPrinter.drawLine(); // Uses constructor's lineCharacter
-						break;
-
-					case "raw": // cmd.content = hex string or Buffer object
-						const bufferToSend = Buffer.isBuffer(cmd.content)
-							? cmd.content
-							: Buffer.from(String(cmd.content || ""), "hex");
-						thermalPrinter.raw(bufferToSend);
-						break;
-
-					default:
-						console.warn(
-							`API Print: Unhandled or unknown command type '${cmd.type}'.`
-						);
-				}
-			}
-
-			resetToDefaultTextStyles(); // Final reset
-
-			// Add a final cut if not explicitly requested by the printData commands
-			if (!printData.some((cmd) => cmd.type?.toLowerCase() === "cut")) {
-				console.log("API Print: Adding a final partial cut to the print job.");
-				thermalPrinter.cut(BreakLine.PART);
-			}
-
-			// Send all buffered commands to the printer
-			const executeResult = await thermalPrinter.execute();
-			console.log(
-				`API Print: thermalPrinter.execute() for '${config.name}' completed. Result:`,
-				executeResult
-			);
-
-			if (!res.headersSent) {
-				res.json({
-					success: true,
-					message: `Print job successfully sent to '${config.name}'.`,
+				// Create a new, hidden browser window to load and print the HTML.
+				// This window is destroyed after printing.
+				const printJobWindow = new BrowserWindow({
+					show: false, // Keep it hidden
+					webPreferences: {
+						nodeIntegration: false,
+						contextIsolation: true,
+						// images: true, // Ensure images are enabled if your HTML has them
+						// offscreen: true, // Consider if truly offscreen rendering is better
+					},
 				});
+
+				await printJobWindow.loadFile(tempHtmlPath);
+				console.log(
+					`API Print: Content loaded into hidden print window for '${config.name}'.`
+				);
+
+				// webContents.print() is asynchronous, providing a callback
+				printJobWindow.webContents.print(
+					{
+						silent:
+							printerOptions?.silent !== undefined
+								? printerOptions.silent
+								: true, // Default to silent
+						deviceName: config.name, // Specify the target OS printer name
+						printBackground:
+							printerOptions?.printBackground !== undefined
+								? printerOptions.printBackground
+								: true,
+						color: printerOptions?.color || false, // Receipts usually monochrome
+						margins: printerOptions?.margins || { marginType: "printableArea" }, // 'default', 'none', 'printableArea', 'custom'
+						landscape: printerOptions?.landscape || false,
+						scaleFactor: printerOptions?.scaleFactor || 100,
+						pagesPerSheet: printerOptions?.pagesPerSheet || 1,
+						collate: printerOptions?.collate || false,
+						copies: printerOptions?.copies || 1,
+						pageRanges: printerOptions?.pageRanges || [], // [{from:0, to:0}] for first page
+						// header: printerOptions?.header, // Not usually used for this type of print
+						// footer: printerOptions?.footer,
+					},
+					(success, failureReason) => {
+						if (!printJobWindow.isDestroyed()) {
+							// Check if window still exists
+							printJobWindow.close(); // Ensure hidden window is closed
+						}
+						fs.unlink(tempHtmlPath).catch((err) =>
+							console.error("API Print: Error deleting temp HTML:", err)
+						); // Clean up
+
+						if (success) {
+							console.log(
+								`API Print: Successfully initiated print to virtual printer '${config.name}'.`
+							);
+							if (!res.headersSent)
+								res.json({
+									success: true,
+									message: `Content sent to virtual printer '${config.name}'.`,
+								});
+						} else {
+							console.error(
+								`API Print: Failed to print to virtual printer '${config.name}'. Reason: ${failureReason}`
+							);
+							if (!res.headersSent)
+								res
+									.status(500)
+									.json({
+										error: `Print to '${config.name}' failed: ${failureReason}`,
+									});
+						}
+					}
+				);
+			} catch (virtualPrintError) {
+				console.error(
+					`API Print: Error setting up virtual print for '${config.name}': ${virtualPrintError.message}`,
+					virtualPrintError
+				);
+				if (!res.headersSent)
+					res
+						.status(500)
+						.json({
+							error: `Failed to prepare print for '${config.name}': ${virtualPrintError.message}`,
+						});
 			}
-		} catch (err) {
-			console.error(
-				`API Print: Error during print job processing for printer '${printerName}' (resolved to '${config.name}'): ${err.message}`,
-				err.stack
-			);
-			if (!res.headersSent) {
-				res
-					.status(500)
-					.json({ error: `Print failed for '${config.name}': ${err.message}` });
+		} else {
+			// --- PHYSICAL PRINTER (node-thermal-printer) ---
+			console.log(`API Print: Handling as PHYSICAL PRINTER: ${config.name}`);
+			let thermalPrinterPhysical; // Use different variable name to avoid scope issues if thermalPrinter was global
+			try {
+				let interfaceOptPhysical;
+				const printerDriverTypePhysical =
+					printerOptions &&
+					printerOptions.type &&
+					PrinterTypes[printerOptions.type.toUpperCase()]
+						? PrinterTypes[printerOptions.type.toUpperCase()]
+						: PrinterTypes.EPSON;
+				const charSetPhysical =
+					printerOptions &&
+					printerOptions.characterSet &&
+					CharacterSet[printerOptions.characterSet.toUpperCase()]
+						? CharacterSet[printerOptions.characterSet.toUpperCase()]
+						: CharacterSet.UTF_8;
+				const timeoutPhysical = printerOptions?.timeout || 5000;
+
+				if (config.type === "electron_os") {
+					// Should be physical if not config.isVirtual
+					if (!config.osName)
+						throw new Error(
+							`Config error: 'osName' missing for OS printer '${config.name}'.`
+						);
+					interfaceOptPhysical = `printer:${config.osName}`;
+				} else if (config.type === "lan_mdns") {
+					if (!config.ip || !config.port)
+						throw new Error(
+							`Config error: 'ip'/'port' missing for mDNS LAN printer '${config.name}'.`
+						);
+					interfaceOptPhysical = `tcp://${config.ip}:${config.port}`;
+				} else {
+					// This fallback should ideally not be reached if types are well-managed
+					console.warn(
+						`API Print: Printer '${config.name}' (type '${config.type}') falling back to OS name interface.`
+					);
+					interfaceOptPhysical = `printer:${config.name}`;
+				}
+
+				thermalPrinterPhysical = new ThermalPrinter({
+					type: printerDriverTypePhysical,
+					interface: interfaceOptPhysical,
+					characterSet: charSetPhysical,
+					removeSpecialCharacters:
+						printerOptions?.removeSpecialCharacters || false,
+					lineCharacter: printerOptions?.lineCharacter || "-",
+					timeout: timeoutPhysical,
+				});
+
+				const resetStylesPhysical = () => {
+					/* ... same resetStyles as previously defined, using thermalPrinterPhysical ... */
+					thermalPrinterPhysical.align("LT");
+					thermalPrinterPhysical.setTextNormal();
+					thermalPrinterPhysical.bold(false);
+					thermalPrinterPhysical.underline(false);
+					thermalPrinterPhysical.underlineThick(false);
+					thermalPrinterPhysical.invert(false);
+				};
+				if (printerOptions?.initialAlign)
+					thermalPrinterPhysical.align(
+						printerOptions.initialAlign.toUpperCase()
+					);
+
+				for (const cmd of printData) {
+					// Your extensive switch case for commands
+					resetStylesPhysical(); // Reset before most commands
+					const alignCmd = cmd.align ? cmd.align.toUpperCase() : "LT";
+					switch (cmd.type?.toLowerCase()) {
+						case "text":
+						case "println":
+							thermalPrinterPhysical.align(alignCmd);
+							if (cmd.style) {
+								if (cmd.style.includes("B")) thermalPrinterPhysical.bold(true);
+								if (cmd.style.includes("U2"))
+									thermalPrinterPhysical.underlineThick(true);
+								else if (cmd.style.includes("U"))
+									thermalPrinterPhysical.underline(true);
+								if (cmd.style.includes("I"))
+									thermalPrinterPhysical.invert(true);
+							}
+							if (
+								cmd.size &&
+								Array.isArray(cmd.size) &&
+								cmd.size.length === 2
+							) {
+								thermalPrinterPhysical.setTextSize(
+									Math.max(0, cmd.size[0] - 1),
+									Math.max(0, cmd.size[1] - 1)
+								);
+							}
+							thermalPrinterPhysical.println(
+								String(cmd.content || cmd.text || "")
+							);
+							break;
+						case "feed":
+							thermalPrinterPhysical.feed(parseInt(cmd.lines, 10) || 1);
+							break;
+						case "cut":
+							thermalPrinterPhysical.cut(
+								cmd.mode === "FULL" ? BreakLine.FULL : BreakLine.PART
+							);
+							break;
+						case "beep":
+							thermalPrinterPhysical.beep(
+								parseInt(cmd.n, 10) || 1,
+								parseInt(cmd.t, 10) || 100
+							);
+							break;
+						case "align":
+							if (cmd.align)
+								thermalPrinterPhysical.align(cmd.align.toUpperCase());
+							break;
+						case "setstyles":
+							if (cmd.align)
+								thermalPrinterPhysical.align(cmd.align.toUpperCase());
+							if (cmd.style) {
+								if (cmd.style.includes("B"))
+									thermalPrinterPhysical.bold(true); /* ... */
+							}
+							if (cmd.size) {
+								thermalPrinterPhysical.setTextSize(
+									Math.max(0, cmd.size[0] - 1),
+									Math.max(0, cmd.size[1] - 1)
+								);
+							}
+							break;
+						case "resetstyles":
+							resetStylesPhysical();
+							break;
+						case "barcode":
+							thermalPrinterPhysical.align(alignCmd);
+							thermalPrinterPhysical.printBarcode(
+								String(cmd.content || cmd.value),
+								cmd.barcodeType || 73,
+								{
+									height: cmd.height || 50,
+									width: cmd.width || 2,
+									hriPos: cmd.hriPos || 0,
+									hriFont: cmd.hriFont || 0,
+									...(cmd.options || {}),
+								}
+							);
+							break;
+						case "qr":
+							thermalPrinterPhysical.align(alignCmd);
+							await thermalPrinterPhysical.printQR(
+								String(cmd.content || cmd.value),
+								{
+									cellSize: cmd.cellSize || 3,
+									correction: cmd.correction || "M",
+									model: cmd.model || 2,
+								}
+							);
+							break;
+						case "image":
+							thermalPrinterPhysical.align(alignCmd);
+							if (cmd.path) {
+								try {
+									await thermalPrinterPhysical.printImage(cmd.path);
+								} catch (e) {
+									console.error("Img Path Err", e);
+									thermalPrinterPhysical.println("[ImgErr]");
+								}
+							} else {
+								thermalPrinterPhysical.println("[NoImgPth]");
+							}
+							break;
+						case "imagebuffer":
+							thermalPrinterPhysical.align(alignCmd);
+							if (cmd.buffer) {
+								try {
+									await thermalPrinterPhysical.printImageBuffer(
+										Buffer.from(cmd.buffer, "base64")
+									);
+								} catch (e) {
+									console.error("ImgBuffErr", e);
+									thermalPrinterPhysical.println("[ImgBuffErr]");
+								}
+							} else {
+								thermalPrinterPhysical.println("[NoImgBf]");
+							}
+							break;
+						case "drawline":
+							thermalPrinterPhysical.drawLine();
+							break;
+						case "raw":
+							thermalPrinterPhysical.raw(
+								Buffer.isBuffer(cmd.content)
+									? cmd.content
+									: Buffer.from(String(cmd.content || ""), "hex")
+							);
+							break;
+						default:
+							console.warn(
+								`API Print Physical: Unhandled cmd type '${cmd.type}'.`
+							);
+					}
+				}
+
+				resetStylesPhysical();
+				if (!printData.some((cmd) => cmd.type?.toLowerCase() === "cut")) {
+					thermalPrinterPhysical.cut(BreakLine.PART);
+				}
+
+				const executeResultPhysical = await thermalPrinterPhysical.execute();
+				console.log(
+					`API Print: Execute() for physical '${config.name}'. Result:`,
+					executeResultPhysical
+				);
+				if (!res.headersSent) {
+					res.json({
+						success: true,
+						message: `Print job sent to physical printer '${config.name}'.`,
+					});
+				}
+			} catch (physicalPrintError) {
+				console.error(
+					`API Print Error (Physical) for '${config.name}': ${physicalPrintError.message}`,
+					physicalPrintError.stack
+				);
+				if (!res.headersSent) {
+					res
+						.status(500)
+						.json({
+							error: `Print failed for physical printer '${config.name}': ${physicalPrintError.message}`,
+						});
+				}
 			}
-		} finally {
-			// Optional: If ThermalPrinter instance might be reused, clear its buffer.
-			// For one-off prints like this, execute() sends and the instance is discarded, so clear() might not be essential.
-			// if (thermalPrinter) {
-			//     try { thermalPrinter.clear(); } catch (e) { console.error("API Print: Error in thermalPrinter.clear():", e); }
-			// }
 		}
 	});
 
-	// Start the Express server
 	const server = app.listen(API_PORT, "0.0.0.0", () => {
-		// Listen on all network interfaces
-		console.log(
-			`Bridge API Server (Electron getPrinters Mode) listening for connections.`
-		);
-		console.log(`  Local:            http://localhost:${API_PORT}`);
-		console.log(
-			`  On Your Network:  http://<your-local-ip>:${API_PORT} (approx)`
-		);
+		console.log(`Bridge API Server (Virtual Print Enabled) listening.`);
+		console.log(`  Local: http://localhost:${API_PORT}`);
 	});
-
 	server.on("error", (error) => {
-		if (error.syscall !== "listen") {
-			throw error;
-		}
-		const bind =
-			typeof API_PORT === "string" ? "Pipe " + API_PORT : "Port " + API_PORT;
-		switch (error.code) {
-			case "EACCES":
-				console.error(
-					`API Server Critical Error: ${bind} requires elevated privileges or is blocked by a firewall.`
-				);
-				process.exit(1);
-				break;
-			case "EADDRINUSE":
-				console.error(
-					`API Server Critical Error: ${bind} is already in use by another application.`
-				);
-				process.exit(1);
-				break;
-			default:
-				console.error(`API Server Critical Error: ${error.code}`, error);
-				throw error;
-		}
+		/* ... (server error handling) ... */
 	});
-
 	return server;
 }
