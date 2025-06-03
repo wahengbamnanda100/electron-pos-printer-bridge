@@ -5,8 +5,10 @@ import { fileURLToPath } from "url";
 // fs and os are no longer directly needed in electron-main.js as HTML generation is in bridge-api.js
 // import fs from 'fs';
 // import os from 'os';
+// import printerLib from "printer";
 
 import {
+	discoverOsPrinters,
 	discoverLanPrintersViaMDNS,
 	testPrinterConnection, // This will now be aware of virtual printers from print-discovery.js
 	destroyBonjour,
@@ -137,7 +139,7 @@ async function performFullDiscoveryAndTest() {
 		}
 
 		// --- Step 2: Discover LAN printers via mDNS (these are assumed physical for now) ---
-		updateRendererStatus("📡 Discovering LAN printers via mDNS...");
+		updateRendererStatus("📡 Discovering LAN and USB printers via mDNS...");
 		const mDnsLanPrinters = await discoverLanPrintersViaMDNS(); // From print-discovery.js
 		mDnsLanPrinters.forEach((p) => {
 			allFoundPrinters.push({
@@ -199,6 +201,12 @@ async function performFullDiscoveryAndTest() {
 			updateRendererStatus(
 				`🔗 Testing connections for ${physicalPrintersToTest.length} physical printer(s)...`
 			);
+			const osDrivers = discoverOsPrinters();
+
+			console.log(
+				`SYSTEM: Found ${osDrivers.length} OS printers to test connections.`
+			);
+			console.log(`SYSTEM driver found, details:`, osDrivers);
 			const testedPhysicalResults = await Promise.all(
 				physicalPrintersToTest.map(async (printer) => {
 					updateRendererStatus(`⏳ Testing physical: ${printer.name}...`);

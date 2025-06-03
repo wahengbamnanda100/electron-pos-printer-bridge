@@ -158,7 +158,11 @@ button#refreshButton:disabled {
 }
 
 .status-virtual {
-	background-color: #6c757d; /* A muted grey, similar to secondary color */
+	background-color: rgb(
+		14,
+		137,
+		186
+	); /* A muted grey, similar to secondary color */
 	color: white;
 }
 

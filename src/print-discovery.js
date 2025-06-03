@@ -1,8 +1,71 @@
 // src/print-discovery.js
 import { PrinterTypes, ThermalPrinter } from "node-thermal-printer";
 import Bonjour from "bonjour";
+import os from "os";
+import osPrinterDriver from "printer";
 
 const bonjourService = Bonjour(); // Single instance for Bonjour service
+
+export async function discoverOsPrinters() {
+	const osPrinters = [];
+	const logPrefix = "OS_DISCOVERY(printer_pkg):";
+	console.log(`${logPrefix} Discovering OS-installed printers...`);
+	try {
+		const availablePrinters = osPrinterDriver.getPrinters();
+		if (availablePrinters && availablePrinters.length > 0) {
+			const defaultPrinterName = osPrinterDriver
+				.getDefaultPrinterName()
+				?.toLowerCase();
+
+			availablePrinters.forEach((p) => {
+				const nameLower = p.name.toLowerCase();
+				const isVirtual =
+					nameLower.includes("onenote") ||
+					nameLower.includes("pdf") ||
+					nameLower.includes("xps") ||
+					nameLower.includes("fax") ||
+					nameLower.includes("send to") ||
+					nameLower.includes("microsoft print to") ||
+					nameLower.includes("document writer");
+
+				let printerAppType = isVirtual ? "os_virtual" : "os_physical_generic";
+				if (!isVirtual) {
+					if (
+						p.portName?.toLowerCase().includes("usb") ||
+						nameLower.includes("usb")
+					)
+						printerAppType = "os_usb_physical";
+					else if (
+						p.portName?.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/) ||
+						nameLower.includes("network") ||
+						nameLower.includes("lan")
+					)
+						printerAppType = "os_lan_physical";
+				}
+
+				osPrinters.push({
+					id: `os_native-${p.name.replace(/[^\w-]/g, "_")}`, // Sanitize ID
+					name: p.name,
+					osName: p.name,
+					type: printerAppType,
+					status: p.status === 0 ? "Ready (OS)" : `OS Status: ${p.status}`,
+					description:
+						p.options?.["printer-make-and-model"] || p.driverName || "",
+					isDefault: defaultPrinterName === p.name.toLowerCase(),
+					isVirtual: isVirtual,
+					attributes: p.attributes,
+					optionsFromNodePrinter: p.options,
+				});
+			});
+		}
+		console.log(
+			`${logPrefix} Found ${osPrinters.length} OS-installed printers.`
+		);
+	} catch (error) {
+		console.error(`${logPrefix} Error: ${error.message}`, error.stack);
+	}
+	return osPrinters;
+}
 
 export async function discoverLanPrintersViaMDNS() {
 	return new Promise((resolve) => {
@@ -125,10 +188,16 @@ export async function testPrinterConnection(printerConfig) {
 	);
 	// console.log("Full printerConfig for testing:", JSON.stringify(printerConfig, null, 2)); // Uncomment for deep debug
 
+	const logPrefix = `TEST_CONN_NTP_WITH_PRINTER_PKG [${printerConfig.name} (${printerConfig.type})]:`;
+
 	let thermalPrinterInstance; // Use a distinct variable name
 	let interfaceToTest = "N/A (Interface not determined before error)"; // Initialize for logging in catch
 
 	try {
+		console.log(
+			"TESTING CONFIG: Starting connection test for printer:",
+			JSON.stringify(printerConfig, null, 2)
+		);
 		// Determine driver type, defaulting to EPSON. This could be part of printerConfig if known.
 		const printerDriverTypeForTest =
 			printerConfig.driverType || PrinterTypes.EPSON;
@@ -172,15 +241,25 @@ export async function testPrinterConnection(printerConfig) {
 			`TESTING: Attempting node-thermal-printer connection for '${printerConfig.name}' using interface: '${interfaceToTest}', driver: '${printerDriverTypeForTest}'.`
 		);
 
-		thermalPrinterInstance = new ThermalPrinter({
+		const ntpOptions = {
 			type: printerDriverTypeForTest,
 			interface: interfaceToTest,
 			timeout: connectionTimeout,
-			// characterSet: CharacterSet.SLOVENIA, // Optional: can be set globally or per print job
-		});
+		};
+
+		if (interfaceToTest.startsWith("printer:")) {
+			console.log(
+				`${logPrefix} Using OS printer queue. Setting 'driver: osPrinterDriver'.`
+			);
+			ntpOptions.driver = osPrinterDriver;
+		}
+
+		thermalPrinterInstance = new ThermalPrinter(ntpOptions);
 
 		// isPrinterConnected() sends a basic status command to check reachability.
 		const isConnected = await thermalPrinterInstance.isPrinterConnected();
+
+		console.log(`${logPrefix} isPrinterConnected result: ${isConnected}`);
 
 		if (isConnected) {
 			console.log(
