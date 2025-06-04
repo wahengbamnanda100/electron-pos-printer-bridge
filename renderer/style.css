@@ -6,6 +6,11 @@
 	--success-color: #28a745;
 	--warning-color: rgb(232, 175, 4);
 	--warning-text-color: #212529;
+	--virtual-color: rgb(
+		8,
+		129,
+		194
+	); /* A muted grey, similar to secondary color */
 	--danger-color: #dc3545;
 	--info-color: #17a2b8; /* For discovered state */
 	--light-bg: #f8f9fa;
@@ -158,10 +163,8 @@ button#refreshButton:disabled {
 }
 
 .status-virtual {
-	background-color: rgb(
-		14,
-		137,
-		186
+	background-color: var(
+		--virtual-color
 	); /* A muted grey, similar to secondary color */
 	color: white;
 }

@@ -97,7 +97,9 @@ function updatePrinterList(printers) {
                 <strong>${printer.name} ${
 			printer.isVirtual ? "(Virtual)" : ""
 		}</strong> (ID: ${printer.id})<br>
-                Type: ${printer.type} ${printer.isVirtual ? "- Virtual" : ""}
+                Type: ${printer.connectionType} ${
+			printer.isVirtual ? "- Virtual" : ""
+		}
             </div>
             <span class="status ${statusClass}">${
 			printer.status || "Unknown"

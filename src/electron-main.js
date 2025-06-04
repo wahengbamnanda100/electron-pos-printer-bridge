@@ -1,16 +1,12 @@
 // src/electron-main.js
-import { app, BrowserWindow, ipcMain, dialog } from "electron"; // Added dialog (though not directly used in this file currently, good to have if bridge API evolves)
+import { app, BrowserWindow, ipcMain } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
-// fs and os are no longer directly needed in electron-main.js as HTML generation is in bridge-api.js
-// import fs from 'fs';
-// import os from 'os';
-// import printerLib from "printer";
 
 import {
-	discoverOsPrinters,
+	discoverRawUsbDevicesWithNodeUsb, // Using 'npm i usb'
 	discoverLanPrintersViaMDNS,
-	testPrinterConnection, // This will now be aware of virtual printers from print-discovery.js
+	testPrinterConnection,
 	destroyBonjour,
 } from "./print-discovery.js";
 import { startApiServer } from "./bridge-api.js";
@@ -19,7 +15,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let mainWindow;
-let discoveredPrinters = []; // This will hold unique printers, now with an 'isVirtual' flag
+let discoveredPrinters = []; // This will hold unique printers with new connectionType
 let apiServerInstance = null;
 
 // --- Logging and Status Update Utilities ---
@@ -28,8 +24,12 @@ function logToMain(message, ...optionalParams) {
 }
 
 function updateRendererStatus(message) {
-	logToMain(`Status Update to Renderer: ${message}`);
-	if (mainWindow && mainWindow.webContents && !mainWindow.isDestroyed()) {
+	logToMain(`Status => Renderer: ${message}`);
+	if (
+		mainWindow &&
+		mainWindow.webContents &&
+		!mainWindow.webContents.isDestroyed()
+	) {
 		try {
 			mainWindow.webContents.send("printer-status-update", message);
 		} catch (error) {
@@ -45,17 +45,12 @@ function createWindow() {
 		height: 750,
 		webPreferences: {
 			preload: path.join(__dirname, "..", "preload.js"),
-			nodeIntegration: false, // Best practice
-			contextIsolation: true, // Best practice
-			// sandbox: false, // Usually not needed for this setup unless webContents.print has issues
+			nodeIntegration: false,
+			contextIsolation: true,
 		},
 		show: true,
 	});
-
 	mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
-
-	// mainWindow.webContents.openDevTools(); // Uncomment for debugging renderer
-
 	mainWindow.on("closed", () => {
 		mainWindow = null;
 	});
@@ -73,263 +68,273 @@ async function performFullDiscoveryAndTest() {
 		updateRendererStatus(
 			"❌ Error: Main window or its webContents not available for printer discovery."
 		);
-		console.error(
-			"Main window/webContents not available for getPrintersAsync."
-		);
-		return; // Cannot proceed without webContents for Electron printer discovery
+		return;
 	}
 
-	let allFoundPrinters = [];
+	let allFoundPrinters = []; // Temporary list to hold printers from all sources
 
 	try {
-		// --- Step 1: Use Electron's built-in API to get OS printers ---
-		updateRendererStatus(
-			"🔍 Discovering OS-configured printers (via Electron API)..."
-		);
+		// --- Step 1: Discover OS-configured printers via Electron API ---
+		updateRendererStatus("OS Printers: Discovering (Electron API)...");
 		const rawElectronPrinters = await mainWindow.webContents.getPrintersAsync();
-		let physicalOsPrinterCount = 0;
-		let virtualOsPrinterCount = 0;
 
 		if (rawElectronPrinters && rawElectronPrinters.length > 0) {
 			rawElectronPrinters.forEach((p) => {
 				const nameLower = p.name.toLowerCase();
 				const descriptionLower = (p.description || "").toLowerCase();
-				// Enhanced list of keywords for virtual printers
-				const isVirtual =
+				const optionsString = JSON.stringify(p.options || {}).toLowerCase();
+				const portNameLower = (p.portName || "").toLowerCase();
+
+				let connectionType = "OS_LOCAL"; // Default for OS printers
+				let isVirtualPrinter = false;
+
+				// Identify Virtual Printers
+				if (
 					nameLower.includes("onenote") ||
 					nameLower.includes("pdf") ||
 					nameLower.includes("xps") ||
 					nameLower.includes("fax") ||
-					nameLower.includes("send to") || // General "send to"
+					nameLower.includes("send to") ||
 					nameLower.includes("microsoft print to") ||
 					nameLower.includes("document writer") ||
 					descriptionLower.includes("onenote") ||
 					descriptionLower.includes("pdf") ||
 					descriptionLower.includes("xps") ||
-					descriptionLower.includes("document writer") ||
-					descriptionLower.includes("fax");
-
-				if (isVirtual) {
-					console.log(`SYSTEM: Identified virtual printer: ${p.name}`);
-					// updateRendererStatus(`ℹ️ Found virtual printer: ${p.name}`); // This can be verbose, maybe only log to main
-					virtualOsPrinterCount++;
-				} else {
-					physicalOsPrinterCount++;
+					descriptionLower.includes("document writer")
+				) {
+					connectionType = "VIRTUAL";
+					isVirtualPrinter = true;
+				}
+				// Identify Physical USB OS Printers (Heuristic)
+				else if (
+					nameLower.includes("usb") ||
+					descriptionLower.includes("usb") ||
+					portNameLower.includes("usb") ||
+					optionsString.includes("usb")
+				) {
+					connectionType = "OS_USB";
+				}
+				// Identify Physical LAN/Network OS Printers (Heuristic)
+				else if (
+					nameLower.includes("network") ||
+					nameLower.includes("lan") ||
+					descriptionLower.includes("network") ||
+					portNameLower.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/) ||
+					portNameLower.includes("ip_") ||
+					optionsString.includes("ip") ||
+					optionsString.includes("network")
+				) {
+					connectionType = "OS_LAN";
 				}
 
 				allFoundPrinters.push({
-					id: `electron_os-${p.name.replace(/[^\w-]/g, "_")}`, // Sanitize ID
+					id: `os_electron-${p.name.replace(/[^\w-]/g, "_")}`,
 					name: p.name,
-					osName: p.name, // Crucial for connecting via 'printer:NAME'
-					type: "electron_os",
-					status: p.status === 0 ? "Ready" : `OS Status: ${p.status}`, // Interpret Electron's status
+					osName: p.name,
+					connectionType: connectionType,
+					legacyType: "electron_os", // For backward compatibility if needed by bridge-api's older paths
+					status: p.status === 0 ? "Ready" : `OS Status: ${p.status}`,
 					description: p.description,
 					isDefault: p.isDefault || false,
+					isVirtual: isVirtualPrinter,
 					options: p.options,
-					isVirtual: isVirtual, // Flag to indicate if it's likely a virtual printer
 				});
 			});
 			updateRendererStatus(
-				`💻 Electron API: Found ${physicalOsPrinterCount} physical OS printers and ${virtualOsPrinterCount} virtual OS printers.`
+				`OS Printers: Found ${rawElectronPrinters.length} (physical & virtual).`
 			);
 		} else {
-			updateRendererStatus(
-				"💻 No OS-configured printers found via Electron API."
-			);
+			updateRendererStatus("OS Printers: None found via Electron API.");
 		}
 
-		// --- Step 2: Discover LAN printers via mDNS (these are assumed physical for now) ---
-		updateRendererStatus("📡 Discovering LAN and USB printers via mDNS...");
-		const mDnsLanPrinters = await discoverLanPrintersViaMDNS(); // From print-discovery.js
-		mDnsLanPrinters.forEach((p) => {
-			allFoundPrinters.push({
-				...p, // Spread properties from mDNS discovery
-				osName: null, // mDNS printers don't have an OS name in this context
-				description: p.description || p.name,
-				isDefault: false,
-				isVirtual: false, // Assume mDNS printers are physical
-			});
-		});
-		updateRendererStatus(
-			`🌐 mDNS scan: Found ${mDnsLanPrinters.length} LAN printers.`
-		);
+		// --- Step 2: Discover Raw USB devices (using 'node-usb') ---
+		updateRendererStatus("Raw USB: Discovering (node-usb)...");
+		const rawUsbNodePrinters = await discoverRawUsbDevicesWithNodeUsb(); // From print-discovery.js
+		if (rawUsbNodePrinters && rawUsbNodePrinters.length > 0) {
+			allFoundPrinters.push(...rawUsbNodePrinters); // They already have connectionType: 'RAW_USB'
+			updateRendererStatus(
+				`Raw USB: Found ${rawUsbNodePrinters.length} potential devices.`
+			);
+		} else {
+			updateRendererStatus("Raw USB: No devices found or discovery failed.");
+		}
 
-		// --- Step 3: Deduplicate printers ---
+		// --- Step 3: Discover LAN printers via mDNS ---
+		updateRendererStatus("mDNS LAN: Discovering...");
+		const mDnsLanPrinters = await discoverLanPrintersViaMDNS(); // From print-discovery.js
+		if (mDnsLanPrinters && mDnsLanPrinters.length > 0) {
+			mDnsLanPrinters.forEach((p) =>
+				allFoundPrinters.push({
+					...p,
+					connectionType: "MDNS_LAN",
+					isVirtual: false,
+				})
+			);
+			updateRendererStatus(
+				`mDNS LAN: Found ${mDnsLanPrinters.length} printers.`
+			);
+		} else {
+			updateRendererStatus("mDNS LAN: No printers found.");
+		}
+
+		// --- Step 4: Deduplicate printers ---
 		const uniquePrintersMap = new Map();
+		// Order of preference if multiple methods find "the same" printer:
+		// 1. OS_USB / OS_LAN / OS_LOCAL (from Electron API)
+		// 2. RAW_USB (if identifiable to an OS one, though hard without more info)
+		// 3. MDNS_LAN
 		for (const p of allFoundPrinters) {
 			let key;
-			// Create a unique key for deduplication
-			if (p.type === "electron_os") key = `os:${p.name.toLowerCase().trim()}`;
-			else if (p.type === "lan_mdns")
-				key = `mdns:${p.ip}:${p.port}`; // IP+Port for mDNS
-			else key = p.id; // Fallback (should be rare with defined types)
+			// Keying strategy: Try to be as specific as possible.
+			// For OS printers, name is usually unique on the system.
+			// For RAW_USB, VID:PID is unique.
+			// For MDNS_LAN, IP:Port is unique.
+			if (p.connectionType.startsWith("OS_"))
+				key = `os:${p.name.toLowerCase().trim()}`;
+			else if (p.connectionType === "RAW_USB")
+				key = `raw_usb:${p.vid}-${p.pid}`;
+			else if (p.connectionType === "MDNS_LAN") key = `mdns:${p.ip}:${p.port}`;
+			else key = p.id; // Fallback
 
-			// Prefer Electron OS printers if a name/key collision occurs
-			if (
-				!uniquePrintersMap.has(key) ||
-				(p.type === "electron_os" &&
-					uniquePrintersMap.get(key).type !== "electron_os")
-			) {
+			if (!uniquePrintersMap.has(key)) {
 				uniquePrintersMap.set(key, p);
+			} else {
+				// Prioritization if key collision (e.g., an OS printer which is also raw USB)
+				const existing = uniquePrintersMap.get(key);
+				if (
+					p.connectionType.startsWith("OS_") &&
+					!existing.connectionType.startsWith("OS_")
+				) {
+					console.log(
+						`Deduplication: Prioritizing OS-discovered '${p.name}' over previous entry of type '${existing.connectionType}'.`
+					);
+					uniquePrintersMap.set(key, p);
+				}
+				// Could add more sophisticated merging if needed, e.g. combining VID/PID from RAW_USB into an OS_USB entry.
 			}
 		}
 		let currentPrintersList = Array.from(uniquePrintersMap.values());
 		updateRendererStatus(
-			`📊 Total ${currentPrintersList.length} unique printers identified (after deduplication).`
+			`📊 Total ${currentPrintersList.length} unique printers identified.`
 		);
 
-		// Assign initial status before testing, especially for virtual printers
 		discoveredPrinters = currentPrintersList.map((p) => ({
 			...p,
-			status: p.isVirtual ? "Ready (Virtual)" : p.status || "Discovered",
+			status:
+				p.connectionType === "VIRTUAL"
+					? "Ready (Virtual)"
+					: p.status || "Discovered",
 		}));
 
-		// Send preliminary list to UI
-		if (
-			mainWindow &&
-			mainWindow.webContents &&
-			!mainWindow.webContents.isDestroyed()
-		) {
+		if (mainWindow && !mainWindow.isDestroyed()) {
 			mainWindow.webContents.send("printers-updated", getPrintersForClient());
 		}
 
-		// --- Step 4: Test connections for physical printers ---
-		const physicalPrintersToTest = currentPrintersList.filter(
-			(p) => !p.isVirtual
+		// --- Step 5: Test connections for non-virtual printers ---
+		const physicalPrintersToTest = discoveredPrinters.filter(
+			(p) => p.connectionType !== "VIRTUAL"
 		);
 		if (physicalPrintersToTest.length > 0) {
 			updateRendererStatus(
 				`🔗 Testing connections for ${physicalPrintersToTest.length} physical printer(s)...`
 			);
-			const osDrivers = discoverOsPrinters();
-
-			console.log(
-				`SYSTEM: Found ${osDrivers.length} OS printers to test connections.`
-			);
-			console.log(`SYSTEM driver found, details:`, osDrivers);
 			const testedPhysicalResults = await Promise.all(
 				physicalPrintersToTest.map(async (printer) => {
-					updateRendererStatus(`⏳ Testing physical: ${printer.name}...`);
-					const result = await testPrinterConnection(printer); // from print-discovery.js
+					updateRendererStatus(
+						`⏳ Testing: ${printer.name} (ConnType: ${printer.connectionType})...`
+					);
+					const result = await testPrinterConnection(printer); // testPrinterConnection from print-discovery.js
 					updateRendererStatus(`  ${result.name}: ${result.status}`);
 					return result;
 				})
 			);
-			// Update statuses of tested physical printers, keep virtual ones as they are
 			discoveredPrinters = discoveredPrinters.map((p) => {
-				if (p.isVirtual) return p;
+				if (p.connectionType === "VIRTUAL") return p;
 				const tested = testedPhysicalResults.find((tp) => tp.id === p.id);
-				return tested || p; // Use tested result or original if something went wrong
+				return tested || p;
 			});
-			updateRendererStatus(
-				"✅ Physical printer connection/status checks complete."
-			);
+			updateRendererStatus("✅ Physical printer connection checks complete.");
 		} else {
-			updateRendererStatus(
-				"ℹ️ No physical printers found to test connection for."
-			);
+			updateRendererStatus("ℹ️ No physical printers found to test.");
 		}
 	} catch (error) {
-		updateRendererStatus(`❌ Error during discovery/testing: ${error.message}`);
-		console.error("Discovery/testing phase error:", error.message, error.stack);
-		discoveredPrinters = []; // Clear on major error to reflect uncertainty
+		updateRendererStatus(
+			`❌ Error during main discovery/testing cycle: ${error.message}`
+		);
+		console.error(
+			"Main discovery/testing cycle error:",
+			error.message,
+			error.stack
+		);
+		discoveredPrinters = [];
 	} finally {
-		// Send final updated list to UI
-		if (
-			mainWindow &&
-			mainWindow.webContents &&
-			!mainWindow.webContents.isDestroyed()
-		) {
+		if (mainWindow && !mainWindow.isDestroyed()) {
 			mainWindow.webContents.send("printers-updated", getPrintersForClient());
 		}
 		updateRendererStatus("👍 Discovery cycle finished.");
 	}
 }
 
-// --- Data Accessors for API and Client ---
 function getPrintersForApiServer() {
-	// The API needs the full config including osName and isVirtual
 	return discoveredPrinters.map((p) => ({
-		...p,
-		osName: p.type === "electron_os" ? p.name : p.osName, // Ensure osName is correct for electron_os types
-		isVirtual: !!p.isVirtual, // Ensure boolean
+		...p, // Pass all collected info, API can decide what it needs
+		// Ensure 'osName' is correctly populated for relevant types used by API
+		osName:
+			p.connectionType && p.connectionType.startsWith("OS_")
+				? p.name
+				: p.osName,
+		isVirtual: p.connectionType === "VIRTUAL", // Derived from connectionType
 	}));
 }
-
 function getPrintersForClient() {
-	// Client needs enough info for display and selection
 	return discoveredPrinters.map((p) => ({
 		id: p.id,
 		name: p.name,
-		type: p.type,
+		// type: p.type, // Old 'type' field might be less relevant now
+		connectionType: p.connectionType, // Send new connection type
 		status: p.status,
 		description: p.description,
 		isDefault: !!p.isDefault,
-		isVirtual: !!p.isVirtual, // Send this flag to the renderer
+		isVirtual: p.connectionType === "VIRTUAL", // Derived
 	}));
 }
 
 // --- Electron App Lifecycle ---
 app.whenReady().then(async () => {
-	logToMain("Electron application is ready.");
+	logToMain("Electron App Ready.");
 	createWindow();
-
 	app.on("activate", () => {
-		if (BrowserWindow.getAllWindows().length === 0) {
-			createWindow();
-		}
+		if (BrowserWindow.getAllWindows().length === 0) createWindow();
 	});
 });
-
 app.on("window-all-closed", () => {
-	if (process.platform !== "darwin") {
-		app.quit();
-	}
+	if (process.platform !== "darwin") app.quit();
 });
-
 app.on("will-quit", () => {
-	logToMain("Application is preparing to quit. Cleaning up...");
-	if (typeof destroyBonjour === "function") {
-		destroyBonjour(); // From print-discovery.js
-		logToMain("Bonjour services cleanup initiated.");
-	}
-
+	logToMain("Quitting. Cleaning up...");
+	if (typeof destroyBonjour === "function") destroyBonjour();
 	if (apiServerInstance && typeof apiServerInstance.close === "function") {
-		logToMain("Closing API server...");
-		apiServerInstance.close((err) => {
-			if (err) {
-				logToMain("Error closing API server:", err.message);
-			} else {
-				logToMain("API server closed successfully.");
-			}
-			apiServerInstance = null;
-		});
+		apiServerInstance.close((err) =>
+			logToMain(err ? `API close err: ${err.message}` : "API server closed.")
+		);
 	}
 });
 
 // --- IPC Handlers ---
 ipcMain.handle("rediscover-printers", async () => {
-	updateRendererStatus(
-		"🔄 Refresh requested by UI. Restarting discovery cycle..."
-	);
+	updateRendererStatus("🔄 UI Refresh Requested. Re-discovering printers...");
 	await performFullDiscoveryAndTest();
-	return getPrintersForClient(); // Send updated list back to renderer
+	return getPrintersForClient();
 });
-
 ipcMain.on("renderer-ready", async () => {
-	logToMain("Renderer process has signaled it is ready.");
-
-	// Ensure main window and its webContents are fully ready
+	logToMain("Renderer Ready. Initiating discovery & server.");
 	if (
 		!mainWindow ||
 		mainWindow.isDestroyed() ||
 		!mainWindow.webContents ||
 		mainWindow.webContents.isDestroyed()
 	) {
-		logToMain(
-			"Window/webContents not ready during 'renderer-ready'. Waiting briefly."
-		);
-		await new Promise((resolve) => setTimeout(resolve, 500)); // Increased wait time slightly
+		await new Promise((resolve) => setTimeout(resolve, 700)); // Slightly longer wait if init race
 		if (
 			!mainWindow ||
 			mainWindow.isDestroyed() ||
@@ -337,30 +342,23 @@ ipcMain.on("renderer-ready", async () => {
 			mainWindow.webContents.isDestroyed()
 		) {
 			updateRendererStatus(
-				"Error: Main window failed to initialize fully. Discovery might be impacted. Please restart."
+				"FATAL: Main window not available for core functions. Please restart."
 			);
 			return;
 		}
 	}
-
-	updateRendererStatus("🛠️ UI ready. Starting initial printer discovery...");
-	await performFullDiscoveryAndTest(); // Perform initial scan now that window is confirmed ready
-
+	updateRendererStatus("🛠️ UI Ready. Initializing printer discovery...");
+	await performFullDiscoveryAndTest();
 	if (!apiServerInstance) {
-		logToMain("Starting the API server after initial discovery...");
 		try {
-			apiServerInstance = startApiServer(getPrintersForApiServer); // Pass the function reference
-			const apiPort = process.env.API_PORT || 3030; // Should match bridge-api.js
-			updateRendererStatus(
-				`✔️ API server started on port ${apiPort}. Bridge is active.`
-			);
-		} catch (error) {
-			updateRendererStatus(
-				`☠️ CRITICAL: Failed to start API server: ${error.message}`
-			);
-			console.error("API Server startup error:", error.stack || error);
+			apiServerInstance = startApiServer(getPrintersForApiServer); // Pass getter function
+			const port = process.env.API_PORT || 3030;
+			updateRendererStatus(`✔️ API server started on port ${port}.`);
+		} catch (e) {
+			updateRendererStatus(`☠️ API server start FAILED: ${e.message}`);
+			console.error("API Server start exception:", e);
 		}
 	} else {
-		updateRendererStatus("ℹ️ API server was already running.");
+		updateRendererStatus("ℹ️ API server already running.");
 	}
 });
