@@ -4,6 +4,12 @@ const refreshButton = document.getElementById("refreshButton");
 const statusMessageEl = document.getElementById("statusMessage");
 const apiUrlEl = document.getElementById("apiUrl");
 
+// +++ ADDED FOR DYNAMIC COPYRIGHT YEAR +++
+const copyrightYearEl = document.getElementById("copyrightYear");
+if (copyrightYearEl) {
+	copyrightYearEl.textContent = new Date().getFullYear();
+}
+
 // Assuming API URL is fixed for now, or will be set by main process.
 // apiUrlEl.textContent = `http://localhost:${process.env.API_PORT || 3030}`;
 
