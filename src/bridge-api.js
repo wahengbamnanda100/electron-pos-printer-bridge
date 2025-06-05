@@ -56,174 +56,323 @@ const templateGenerators = {
 };
 
 // Helper to convert NTP-style command objects to Plick EPP's PosPrintData[] format
+// Helper to convert NTP-style command objects to Plick EPP's PosPrintData[] format
 function mapNTPCommandsToPlickData(ntpCommands, printerOptions = {}) {
 	const plickData = [];
 	if (!Array.isArray(ntpCommands)) {
 		console.error(
 			"mapNTPCommandsToPlickData: input ntpCommands is not an array"
 		);
-		return [{ type: "text", value: "[Error: Invalid commands input]" }];
+		return [
+			{
+				type: "text",
+				value: "[Error: Invalid template commands input - not an array]",
+			},
+		];
 	}
 
 	console.log(
 		`mapNTPCommandsToPlickData: Converting ${ntpCommands.length} NTP commands to Plick format.`
 	);
 
+	let currentLineBuffer = ""; // Buffer for accumulating text from 'print' commands
+
 	for (const cmd of ntpCommands) {
-		// Basic mapping, extend this based on your NTP command set and Plick's capabilities
+		if (!cmd || typeof cmd.type !== "string") {
+			console.warn(
+				"mapNTPCommandsToPlickData: Encountered invalid command object",
+				cmd
+			);
+			plickData.push({
+				type: "text",
+				value: "[Error: Invalid command object in template]",
+			});
+			continue;
+		}
+
+		// Derive Plick style from NTP command properties
+		// DefaulttextAlign helps ensure 'text' elements get an alignment.
+		let defaultTextAlign = "left";
+		if (
+			cmd.align?.toLowerCase() === "ct" ||
+			cmd.align?.toLowerCase() === "center"
+		)
+			defaultTextAlign = "center";
+		else if (
+			cmd.align?.toLowerCase() === "rt" ||
+			cmd.align?.toLowerCase() === "right"
+		)
+			defaultTextAlign = "right";
+
+		const style = {
+			fontWeight: cmd.style?.includes("B") ? "bold" : "normal",
+			textDecoration: cmd.style?.includes("U") ? "underline" : "none",
+			textAlign: defaultTextAlign,
+			fontSize: "12px", // Default
+		};
+
+		if (cmd.size && Array.isArray(cmd.size) && cmd.size.length > 0) {
+			const w = cmd.size[0] || 1;
+			const h = cmd.size[1] || w; // if only one size val, assume height is same
+			if (w >= 2 && h >= 2) style.fontSize = "22px"; // Approx double size
+			else if (h >= 2) style.fontSize = "20px"; // Approx double height
+			else if (w >= 2) style.fontSize = "15px"; // Approx double width (slightly larger)
+		}
+
 		switch (cmd.type?.toLowerCase()) {
-			case "text":
-			case "println":
-				plickData.push({
-					type: "text",
-					value: String(cmd.content || cmd.text || ""),
-					style: {
-						// Approximate style conversion - Plick uses CSS-like styles
-						fontWeight: cmd.style?.includes("B") ? "bold" : "normal",
-						textDecoration: cmd.style?.includes("U") ? "underline" : "none",
-						textAlign:
-							cmd.align?.toLowerCase() === "ct" ||
-							cmd.align?.toLowerCase() === "center"
-								? "center"
-								: cmd.align?.toLowerCase() === "rt" ||
-								  cmd.align?.toLowerCase() === "right"
-								? "right"
-								: "left",
-						fontSize:
-							cmd.size && cmd.size[0] >= 2 && cmd.size[1] >= 2
-								? "20px"
-								: cmd.size && (cmd.size[0] >= 1 || cmd.size[1] >= 1)
-								? "16px"
-								: "12px", // Example sizing
-					},
-				});
+			case "text": // NTP: print text without appending a newline
+			case "print": // Custom: similar to NTP 'text'
+				currentLineBuffer += String(cmd.content || cmd.text || cmd.value || "");
+				// Style of this 'print' part will be merged when 'println' or block flushes.
+				// For now, Plick styles are per-block, so the style of the 'println' will dominate.
 				break;
+
+			case "println":
+				if (currentLineBuffer) {
+					// If there's a buffered line from 'print'
+					plickData.push({
+						type: "text",
+						value:
+							currentLineBuffer +
+							String(cmd.content || cmd.text || cmd.value || ""),
+						style: style, // Apply style from the 'println' command
+					});
+					currentLineBuffer = "";
+				} else {
+					plickData.push({
+						type: "text",
+						value: String(cmd.content || cmd.text || cmd.value || ""),
+						style: style,
+					});
+				}
+				break;
+
 			case "feed":
-				// Plick doesn't have a direct "feed" command. Simulate with newlines or styled margins.
-				// Or, often, feeds are handled by ensuring each 'text' is a new line.
-				// If you need explicit empty lines, send text entries with spaces or rely on default line breaks.
+				if (currentLineBuffer) {
+					plickData.push({
+						type: "text",
+						value: currentLineBuffer,
+						style: style,
+					}); // Flush buffer with current styles
+					currentLineBuffer = "";
+				}
 				const lines = parseInt(cmd.lines, 10) || 1;
 				for (let i = 0; i < lines; i++) {
-					plickData.push({ type: "text", value: " " }); // Adding a space, Plick might optimize empty values
+					plickData.push({
+						type: "text",
+						value: " ",
+						style: { fontSize: "12px" },
+					}); // Add space for feed line
 				}
 				break;
+
 			case "cut":
-				// Plick EPP handles cutting automatically or based on its own internal logic/options.
-				// No direct mapping command type 'cut'. It might be an option in PosPrinter.print options for some printers.
+				if (currentLineBuffer) {
+					plickData.push({
+						type: "text",
+						value: currentLineBuffer,
+						style: style,
+					});
+					currentLineBuffer = "";
+				}
 				console.warn(
-					"mapNTPCommandsToPlickData: 'cut' command has no direct Plick EPP data equivalent. Cutting is usually automatic."
+					"mapNTPCommandsToPlickData: 'cut' command has no direct Plick EPP data equivalent. Cutting is usually automatic or a print option."
 				);
+				// No Plick data object for 'cut'. It's often handled by PosPrinter.print options or printer defaults.
 				break;
-			case "barcode":
-				plickData.push({
-					type: "barCode", // Note: Plick's documentation shows 'barCode' (camelCase)
-					value: String(cmd.content || cmd.value),
-					height: parseInt(cmd.height, 10) || 40,
-					width: parseInt(cmd.width, 10) || 2,
-					displayValue: cmd.hriPos !== undefined ? cmd.hriPos > 0 : true, // Approximation
-					// Plick uses 'fontSize' for displayValue, NTP uses hriFont
-				});
-				break;
-			case "qr":
-				plickData.push({
-					type: "qrCode", // Note: Plick's documentation shows 'qrCode' (camelCase)
-					value: String(cmd.content || cmd.value),
-					height: parseInt(cmd.cellSize, 10) * 20 || 60, // Approximate conversion
-					width: parseInt(cmd.cellSize, 10) * 20 || 60, // Plick uses overall width/height for QR
-				});
-				break;
-			case "image":
-				if (cmd.path) {
+
+			case "setstyles":
+			case "resetstyles":
+			case "align": // Standalone align command
+				if (currentLineBuffer) {
+					// If styles change (set/reset) or alignment is explicitly set,
+					// print any buffered text with the *previous* style context.
+					// The 'style' variable was derived from the cmd itself.
+					// For a truly stateful mapper, you'd have a `currentPlickStyle` variable.
 					plickData.push({
-						type: "image",
-						path: cmd.path, // Plick supports 'path' for local files
-						position:
-							cmd.align?.toLowerCase() === "ct" ||
-							cmd.align?.toLowerCase() === "center"
-								? "center"
-								: cmd.align?.toLowerCase() === "rt" ||
-								  cmd.align?.toLowerCase() === "right"
-								? "right"
-								: "left",
-						// width: 'auto', // Plick has default image sizing or you can specify
-						// height: 'auto',
+						type: "text",
+						value: currentLineBuffer,
+						style: style,
 					});
-				} else {
-					plickData.push({ type: "text", value: "[No Img Path]" });
+					currentLineBuffer = "";
 				}
-				break;
-			case "imagebuffer":
-				if (cmd.buffer) {
-					// Plick expects a URL or path. For base64, use 'url' field.
-					const base64Image = Buffer.from(cmd.buffer, "base64").toString(
-						"base64"
-					);
-					plickData.push({
-						type: "image",
-						url: `data:image/png;base64,${base64Image}`, // Assuming PNG, adjust if needed
-						position: "center",
-					});
-				} else {
-					plickData.push({ type: "text", value: "[No ImgBufferData]" });
-				}
-				break;
-			case "drawline": // NTP's drawLine is typically a line of dashes
-				plickData.push({ type: "divider" }); // Plick's 'divider' type
-				break;
-			// tableCustom: This is complex. NTP's tableCustom is very different from Plick's 'table' type.
-			// Plick's table has tableHeader, tableBody, tableFooter with structured {type: 'text', value: ...} cells.
-			// A full mapping for tableCustom would be extensive. For now, a placeholder:
-			case "tablecustom":
-				plickData.push({
-					type: "text",
-					value:
-						"[Table rendering via Plick requires specific Plick table format - mapping not fully implemented]",
-				});
-				console.warn(
-					"mapNTPCommandsToPlickData: 'tablecustom' requires manual conversion to Plick's table structure."
+				// These NTP commands modify a state. Plick styles are per-element.
+				// The 'style' object calculated at the start of the loop for each cmd
+				// is the primary way these are translated for element types.
+				console.log(
+					`mapNTPCommandsToPlickData: NTP style command '${cmd.type}' encountered. Effect incorporated into element styles or handled by buffer flush.`
 				);
 				break;
 
-			// Styles, Align, Raw: These are generally not 1:1 or are handled differently.
-			case "align": // Alignment should be part of the style of individual elements for Plick.
-			case "setstyles":
-			case "resetstyles":
-				// These affect subsequent commands in NTP. Plick applies styles per element.
-				// The mapping for text/println already tries to handle alignment/style from current cmd.
+			// Block elements that should flush any pending currentLineBuffer first
+			case "barcode":
+			case "qr":
+			case "image":
+			case "imagebuffer":
+			case "drawline": // NTP's drawLine becomes Plick's divider
+			case "tablecustom": // Complex mapping, placeholder for now
+			case "raw": // Not directly supported by Plick structured data
+			default: // Handle any other unlisted types as a block too
+				if (currentLineBuffer) {
+					plickData.push({
+						type: "text",
+						value: currentLineBuffer,
+						style: style,
+					}); // Flush with styles of the command causing flush
+					currentLineBuffer = "";
+				}
+
+				// Now process the actual block command
+				if (cmd.type?.toLowerCase() === "barcode") {
+					plickData.push({
+						type: "barCode",
+						value: String(cmd.content || cmd.value),
+						height: parseInt(cmd.height, 10) || 40,
+						width: parseInt(cmd.width, 10) || 2,
+						displayValue: cmd.hriPos !== undefined ? cmd.hriPos > 0 : true,
+						position: style.textAlign,
+						// Plick has textPosition ('top', 'bottom', 'none'), not directly from hriPos easily.
+					});
+				} else if (cmd.type?.toLowerCase() === "qr") {
+					plickData.push({
+						type: "qrCode",
+						value: String(cmd.content || cmd.value),
+						height: (parseInt(cmd.cellSize, 10) || 3) * 20, // Approximation
+						width: (parseInt(cmd.cellSize, 10) || 3) * 20, // Approximation
+						position: style.textAlign,
+						correctionLevel: ["L", "M", "Q", "H"].includes(
+							String(cmd.correction).toUpperCase()
+						)
+							? String(cmd.correction).toUpperCase()
+							: "M",
+					});
+				} else if (cmd.type?.toLowerCase() === "image") {
+					if (cmd.path) {
+						plickData.push({
+							type: "image",
+							path: cmd.path,
+							position: style.textAlign,
+						});
+					} else {
+						plickData.push({
+							type: "text",
+							value: "[Image path missing]",
+							style: style,
+						});
+					}
+				} else if (cmd.type?.toLowerCase() === "imagebuffer") {
+					if (cmd.buffer) {
+						const base64Image = Buffer.isBuffer(cmd.buffer)
+							? cmd.buffer.toString("base64")
+							: String(cmd.buffer);
+						plickData.push({
+							type: "image",
+							url: `data:image/png;base64,${base64Image}`, // Assumes PNG
+							position: style.textAlign,
+						});
+					} else {
+						plickData.push({
+							type: "text",
+							value: "[Image buffer missing]",
+							style: style,
+						});
+					}
+				} else if (cmd.type?.toLowerCase() === "drawline") {
+					plickData.push({ type: "divider" });
+				} else if (cmd.type?.toLowerCase() === "tablecustom") {
+					plickData.push({
+						type: "text",
+						value:
+							"[NTP TableCustom complex: mapping to Plick Table TBD. Raw data attempt:]",
+						style: { fontSize: "10px" },
+					});
+					if (cmd.data && Array.isArray(cmd.data)) {
+						cmd.data.forEach((row) => {
+							if (Array.isArray(row)) {
+								plickData.push({
+									type: "text",
+									value: row.join(" | "),
+									style: { fontSize: "10px", textAlign: "left" },
+								});
+							}
+						});
+					}
+					console.warn(
+						"mapNTPCommandsToPlickData: 'tablecustom' requires significant effort to map to Plick's table structure."
+					);
+				} else if (cmd.type?.toLowerCase() === "raw") {
+					plickData.push({
+						type: "text",
+						value: "[RAW NTP command not supported by Plick EPP]",
+						style: style,
+					});
+				} else {
+					// Default case for unhandled block-like commands
+					console.warn(
+						`mapNTPCommandsToPlickData: Unhandled NTP command type '${cmd.type}' treated as block. Attempting to send as plain text.`
+					);
+					plickData.push({
+						type: "text",
+						value: `[Unsupported NTP command: ${
+							cmd.type
+						} - Content: ${JSON.stringify(
+							cmd.content || cmd.text || cmd.value || ""
+						)?.substring(0, 100)}]`,
+						style: { fontSize: "10px", textAlign: "left" },
+					});
+				}
 				break;
-			case "raw":
-				plickData.push({
-					type: "text",
-					value: "[RAW command not supported by Plick EPP via this mapping]",
-				});
-				console.warn(
-					"mapNTPCommandsToPlickData: 'raw' command type is not directly mappable to Plick EPP's structured data."
-				);
-				break;
-			default:
-				console.warn(
-					`mapNTPCommandsToPlickData: Unhandled NTP command type '${cmd.type}'.`
-				);
-				plickData.push({
-					type: "text",
-					value: `[Unsupported NTP command: ${cmd.type}]`,
-				});
 		}
 	}
+
+	// After the loop, if there's any unflushed content in currentLineBuffer (e.g., template ends with 'print')
+	if (currentLineBuffer) {
+		plickData.push({
+			type: "text",
+			value: currentLineBuffer,
+			style: { textAlign: "left", fontSize: "12px" },
+		}); // Use a default style
+	}
+
+	// Final checks and warnings
 	if (plickData.length === 0 && ntpCommands.length > 0) {
+		console.warn(
+			"mapNTPCommandsToPlickData: Resulting Plick data array is empty, though NTP commands were provided. This might indicate all commands were unhandled or only resulted in state changes."
+		);
 		plickData.push({
 			type: "text",
 			value:
-				"[Warning: No mappable Plick commands generated from NTP template]",
+				"[Warning: No Plick commands generated. Template might be empty or use only unmappable NTP types.]",
 		});
 	} else if (plickData.length === 0 && ntpCommands.length === 0) {
-		plickData.push({ type: "text", value: "[Info: Empty template processed]" });
+		plickData.push({
+			type: "text",
+			value: "[Info: Empty template processed.]",
+		});
 	}
 
-	return plickData;
-}
+	// Sanity check: ensure all objects in plickData have a 'type' and are not null/undefined
+	const validatedPlickData = [];
+	for (let i = 0; i < plickData.length; i++) {
+		if (plickData[i] && typeof plickData[i].type === "string") {
+			validatedPlickData.push(plickData[i]);
+		} else {
+			console.error(
+				"mapNTPCommandsToPlickData: Produced a non-object or object without 'type' at index",
+				i,
+				plickData[i]
+			);
+			validatedPlickData.push({
+				type: "text",
+				value: `[FATAL MAPPER ERROR: Invalid object created at index ${i}]`,
+			});
+		}
+	}
 
+	return validatedPlickData;
+}
 // Helper function to convert our command objects to simple HTML for virtual printers
+
 function commandsToSimpleHtml(
 	printDataArray,
 	documentTitle = "Print Document"
@@ -796,12 +945,10 @@ export function startApiServer(getDiscoveredPrinters, mainWindow) {
 					`${logPrefixUsb} Full RAW USB printing logic not yet re-integrated into this specific example snippet.`
 				);
 				if (!res.headersSent)
-					res
-						.status(501)
-						.json({
-							error:
-								"RAW_USB printing path needs full re-integration from original code.",
-						});
+					res.status(501).json({
+						error:
+							"RAW_USB printing path needs full re-integration from original code.",
+					});
 			} catch (rawError) {
 				console.error(
 					`${logPrefixUsb} Error: ${rawError.message}`,
@@ -822,12 +969,9 @@ export function startApiServer(getDiscoveredPrinters, mainWindow) {
 				`${logPrefixOsCmd} Handling OS-queued printer via command line.`
 			);
 			if (!config.osName)
-				return res
-					.status(400)
-					.json({
-						error:
-							"OS Printer config missing osName for command line printing.",
-					});
+				return res.status(400).json({
+					error: "OS Printer config missing osName for command line printing.",
+				});
 
 			// (The OS command line printing logic from the original code would go here)
 			// This involved generating a raw buffer and then using 'lp' or 'powershell Out-Printer'.
@@ -878,11 +1022,9 @@ export function startApiServer(getDiscoveredPrinters, mainWindow) {
 							`STDERR: ${stderr}`
 						);
 						if (!res.headersSent)
-							res
-								.status(500)
-								.json({
-									error: `OS print command failed: ${stderr || error.message}`,
-								});
+							res.status(500).json({
+								error: `OS print command failed: ${stderr || error.message}`,
+							});
 					} else {
 						console.log(
 							`${logPrefixOsCmd} OS Command SUCCESS for '${config.osName}'.`
@@ -900,11 +1042,9 @@ export function startApiServer(getDiscoveredPrinters, mainWindow) {
 					osCmdError.stack
 				);
 				if (!res.headersSent)
-					res
-						.status(500)
-						.json({
-							error: `OS_CMD print setup failed: ${osCmdError.message}`,
-						});
+					res.status(500).json({
+						error: `OS_CMD print setup failed: ${osCmdError.message}`,
+					});
 			}
 		}
 		// --- Direct TCP/IP printing for MDNS_LAN not handled by Plick/OS Name (Legacy or specific hardware)
