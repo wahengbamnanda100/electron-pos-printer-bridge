@@ -8,7 +8,8 @@ import {
 	testPrinterConnection,
 	destroyBonjour,
 } from "./print-discovery.js";
-import { startApiServer } from "./bridge-api.js";
+// import { startApiServer } from "./bridge-api.js";
+import { startApiServer } from "./api/server.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

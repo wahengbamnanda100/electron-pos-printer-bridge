@@ -210,3 +210,88 @@ button#refreshButton:disabled {
 .app-footer p {
 	margin: 0;
 }
+
+.api-documentation {
+	margin-top: 2.5em;
+	padding-top: 1em;
+}
+
+.api-endpoint {
+	background-color: #fff; /* var(--dark-bg) but sometimes it's better to be explicit */
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius);
+	margin-bottom: 1.5em;
+	box-shadow: var(--box-shadow);
+	overflow: hidden; /* To contain floated elements or pre tags */
+}
+
+.api-header {
+	background-color: var(--light-bg); /* Slightly different bg for header */
+	padding: 0.8em 1.2em;
+	border-bottom: 1px solid var(--border-color);
+	display: flex;
+	align-items: center;
+}
+
+.api-method {
+	font-family: var(--font-family-monospace);
+	font-weight: bold;
+	padding: 0.3em 0.8em;
+	border-radius: var(--border-radius);
+	margin-right: 0.8em;
+	color: white;
+	font-size: 0.9em;
+	text-transform: uppercase;
+}
+
+.api-method.get {
+	background-color: var(--primary-color);
+}
+.api-method.post {
+	background-color: var(--success-color);
+}
+/* Add .put, .delete, etc. if needed */
+
+.api-path {
+	font-family: var(--font-family-monospace);
+	font-size: 1.1em; /* Slightly larger for emphasis */
+	color: var(--heading-color);
+	font-weight: 500;
+}
+
+.api-description {
+	padding: 1.2em;
+	font-size: 0.95em;
+}
+
+.api-description p {
+	margin-top: 0;
+	margin-bottom: 0.8em;
+	color: var(--text-color);
+}
+.api-description strong {
+	display: block;
+	margin-top: 1em;
+	margin-bottom: 0.5em;
+	font-weight: 600;
+	color: var(--heading-color);
+}
+
+/* Styles for <pre> and <code> */
+.api-description pre {
+	background-color: #f0f2f5; /* Lighter than light-bg, for code blocks */
+	border: 1px solid #e0e2e5; /* Softer border for pre */
+	padding: 1em;
+	border-radius: var(--border-radius);
+	overflow-x: auto; /* Handle long lines of code */
+	font-family: var(--font-family-monospace);
+	font-size: 0.85em; /* Smaller font for code blocks */
+	line-height: 1.5;
+	color: #333; /* Darker text for better readability in code blocks */
+}
+.api-description pre code {
+	font-family: inherit; /* Inherit from <pre> */
+	background: none; /* Remove individual code background if pre has one */
+	padding: 0;
+	color: inherit;
+}

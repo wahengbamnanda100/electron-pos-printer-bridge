@@ -25,6 +25,39 @@
 				<!-- Printers will be listed here -->
 			</ul>
 
+			<!-- UPDATED SECTION FOR API ENDPOINTS (SIMPLIFIED) -->
+			<div class="api-documentation">
+				<h2>API Endpoint Documentation</h2>
+				<div class="api-endpoint">
+					<div class="api-header">
+						<span class="api-method get">GET</span>
+						<span class="api-path">/api/printers</span>
+					</div>
+					<div class="api-description">
+						<p>
+							Retrieves a list of all discovered printers, including their
+							status, connection type, OS name, and other details.
+						</p>
+						<!-- Removed Example Response -->
+					</div>
+				</div>
+
+				<div class="api-endpoint">
+					<div class="api-header">
+						<span class="api-method post">POST</span>
+						<span class="api-path">/api/print</span>
+					</div>
+					<div class="api-description">
+						<p>
+							Sends a print job to a specified printer using a defined template
+							and data. Requires a JSON body with `printerName`, `templateType`,
+							and `templateData`.
+						</p>
+					</div>
+				</div>
+			</div>
+			<!-- END OF UPDATED SECTION -->
+
 			<footer class="app-footer">
 				<!-- MODIFIED THIS LINE -->
 				<p>
