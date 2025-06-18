@@ -1,14 +1,96 @@
 // src/services/printService.js
 import { getTemplateFunction } from "../templates/index.js";
+
+// import { generateTwKitchenTakeawayTicketPDF } from "../pdf-genarator/kotReceiptPdf.js";
+
 import { mapNTPCommandsToPlickData } from "../formatters/ntpToPlickFormatter.js";
 import { commandsToSimpleHtml } from "../formatters/ntpToHtmlFormatter.js";
 import { generatePrintBufferNTP } from "../formatters/ntpToEscposBufferFormatter.js";
 
+// import {
+// 	printHtmlVirtually,
+// 	printPdfVirtually,
+// } from "../printing/virtualPrinter.js";
 import { printVirtually } from "../printing/virtualPrinter.js";
 import { printWithPlick } from "../printing/plickPosPrinter.js";
 import { printViaOsCommand } from "../printing/osCommandPrinter.js";
 import { printViaTcpIp } from "../printing/tcpIpPrinter.js";
 import { printViaRawUsb } from "../printing/rawUsbPrinter.js"; // Placeholder
+
+// Node.js core modules for path resolution
+import path from "path";
+import { fileURLToPath } from "url"; // Only if __dirname is not naturally available (ESM context)
+import fs from "fs/promises";
+import os from "os";
+
+let serviceModuleDir;
+try {
+	serviceModuleDir = __dirname; // Will work if in a CJS-like environment or Electron main with nodeIntegration
+} catch (e) {
+	// Fallback for pure ESM environments
+	const __filename_service = fileURLToPath(import.meta.url);
+	serviceModuleDir = path.dirname(__filename_service);
+}
+
+const fixedLogoPath = path.join(
+	serviceModuleDir,
+	"..",
+	"..",
+	"assets",
+	"logo.png"
+);
+console.log("Attempting to use fixed logo path:", fixedLogoPath);
+
+function findPrinterConfiguration(printers, requestedPrinterName) {
+	const requestedNameLower = requestedPrinterName.toLowerCase();
+
+	// 1. Exact match (case-insensitive) by name or osName
+	let foundPrinter = printers.find(
+		(p) =>
+			p.name.toLowerCase() === requestedNameLower ||
+			(p.osName && p.osName.toLowerCase() === requestedNameLower)
+	);
+	if (foundPrinter) return foundPrinter;
+
+	// 2. Fuzzy match for common virtual printer terms
+	const fuzzyTerms = [
+		"onenote",
+		"oneNote",
+		"pdf",
+		"xps",
+		"microsoft print to pdf",
+		"save to onenote",
+	];
+	if (fuzzyTerms.some((term) => requestedNameLower.includes(term))) {
+		// If requested name is generic like "onenote" or "pdf"
+		// Find the first available printer whose name CONTAINS the requested term (or a more specific term if needed)
+		// Prioritize non-protected versions if multiple exist for terms like "onenote"
+		foundPrinter =
+			printers.find(
+				(p) =>
+					p.name.toLowerCase().includes(requestedNameLower) &&
+					!p.name.toLowerCase().includes("protected")
+			) ||
+			printers.find(
+				(p) =>
+					p.osName &&
+					p.osName.toLowerCase().includes(requestedNameLower) &&
+					!p.osName.toLowerCase().includes("protected")
+			) ||
+			printers.find((p) => p.name.toLowerCase().includes(requestedNameLower)) || // Fallback to any containing term
+			printers.find(
+				(p) => p.osName && p.osName.toLowerCase().includes(requestedNameLower)
+			);
+
+		if (foundPrinter) {
+			console.log(
+				`Fuzzy match: Requested '${requestedPrinterName}', using '${foundPrinter.name}'`
+			);
+			return foundPrinter;
+		}
+	}
+	return null; // No printer found
+}
 
 export async function handlePrintRequest(
 	jobDetails,
@@ -29,20 +111,28 @@ export async function handlePrintRequest(
 	const printers = getDiscoveredPrinters();
 	if (!printers) throw new Error("Printer configuration unavailable.");
 
-	const printerConfig = printers.find(
-		(p) =>
-			p.name.toLowerCase() === printerName.toLowerCase() ||
-			(p.osName && p.osName.toLowerCase() === printerName.toLowerCase())
-	);
+	// const printerConfig = printers.find(
+	// 	(p) =>
+	// 		p.name.toLowerCase() === printerName.toLowerCase() ||
+	// 		(p.osName && p.osName.toLowerCase() === printerName.toLowerCase())
+	// );
+
+	const printerConfig = findPrinterConfiguration(printers, printerName);
 
 	if (!printerConfig) {
 		throw new Error(`Printer named '${printerName}' not found.`);
 	}
 
 	let ntpStyleCommands;
+
+	const finalTemplateData = {
+		...templateData, // Spread incoming data from API
+		logoPath: fixedLogoPath, // Override or add the fixed local logo path
+		// This path will be used by both NTP and PDF templates
+	};
 	try {
 		const templateFunction = getTemplateFunction(templateType);
-		ntpStyleCommands = templateFunction(templateData);
+		ntpStyleCommands = templateFunction(finalTemplateData);
 		if (!Array.isArray(ntpStyleCommands)) {
 			throw new Error("Template did not return an array of commands.");
 		}
@@ -70,7 +160,7 @@ export async function handlePrintRequest(
 		console.log(
 			`${logPrefix} Using Electron WebContents.print() for virtual printer.`
 		);
-		const htmlContent = commandsToSimpleHtml(
+		const htmlContent = await commandsToSimpleHtml(
 			ntpStyleCommands,
 			`Print to ${printerConfig.name}`
 		);

@@ -15,7 +15,6 @@ export function createPrintRoutes(getDiscoveredPrinters, mainWindow) {
 			res.json(result);
 		} catch (error) {
 			console.error(`API /print Error: ${error.message}`, error.stack);
-			// Determine appropriate status code based on error type if possible
 			if (error.message.includes("not found")) {
 				res.status(404).json({ error: error.message });
 			} else if (error.message.includes("Missing")) {

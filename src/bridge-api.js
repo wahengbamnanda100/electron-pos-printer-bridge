@@ -47,11 +47,14 @@ try {
 // import { generateStandardReceipt } from "./templates/standardReceipt.js";
 // import { generateKitchenOrderTicket } from "./templates/kitchenOrderTicket.js";
 import { generateTwKitchenTakeawayTicket } from "./templates/kot_save_recipt.js";
+import { generateChelokababTakeawayReceipt } from "./templates/template_2.js";
 
 const API_PORT = process.env.API_PORT || 3030;
 
 const templateGenerators = {
 	KOT_SAVE: generateTwKitchenTakeawayTicket,
+	temp2: generateChelokababTakeawayReceipt,
+
 	// Add more template identifiers and their corresponding functions here
 };
 

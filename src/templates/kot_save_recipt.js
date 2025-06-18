@@ -82,7 +82,7 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 	});
 	printCommands.push({
 		type: "setStyles",
-		align: "LT",
+		align: "CT",
 		style: "B",
 		size: [2, 2],
 	}); // Large and bold
@@ -181,14 +181,14 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 		const maxNameLineLength = paperCharWidth - servedByPrefix.length;
 		let servedByFull = d(data.servedBy);
 
-		printCommands.push({ type: "print", content: servedByPrefix }); // Print prefix without newline
+		printCommands.push({ type: "println", content: servedByPrefix }); // Print prefix without newline
 		// Word wrap for servedBy name if it's too long
 		let remainingName = servedByFull;
 		let isFirstLine = true;
 		while (remainingName.length > 0) {
 			let lineToPrint;
 			if (!isFirstLine) {
-				printCommands.push({ type: "print", content: "            " }); // Indent subsequent lines
+				printCommands.push({ type: "println", content: "            " }); // Indent subsequent lines
 			}
 			if (
 				remainingName.length >
