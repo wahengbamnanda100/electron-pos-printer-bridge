@@ -358,8 +358,13 @@ export function generateChelokababTakeawayReceipt(data = {}) {
 	// --- Recursive Helper to Print Items and their Sub-Items ---
 	// indentLevel: 0 for main items, 1 for first level sub-items, etc.
 	// isSubItem: boolean to differentiate styling or prefix for sub-items
-	const printItemAndSubItems = (item, indentLevel = 0, isSubItem = false) => {
-		const indentSpaces = "  ".repeat(indentLevel); // 2 spaces per indent level
+	const printItemAndSubItems = (
+		item,
+		indentLevel = 0,
+		isSubItem = false,
+		cancel = false
+	) => {
+		const indentSpaces = " ".repeat(indentLevel); // 2 spaces per indent level
 		const menuColumnCharWidth =
 			Math.floor(paperCharWidth * 0.55) - indentSpaces.length;
 
@@ -402,17 +407,17 @@ export function generateChelokababTakeawayReceipt(data = {}) {
 		});
 
 		// Item Description (if any, centered under the menu area, indented)
-		if (item.description) {
-			printCommands.push({ type: "setStyles", align: "CT", size: [1, 1] });
-			printCommands.push({
-				type: "println",
-				content: centerText(
-					`${indentSpaces}  ${d(item.description)}`,
-					menuColumnCharWidth
-				),
-			});
-			printCommands.push({ type: "resetStyles" });
-		}
+		// if (item.description) {
+		// 	printCommands.push({ type: "setStyles", align: "CT", size: [1, 1] });
+		// 	printCommands.push({
+		// 		type: "println",
+		// 		content: centerText(
+		// 			`${indentSpaces}  ${d(item.description)}`,
+		// 			menuColumnCharWidth
+		// 		),
+		// 	});
+		// 	printCommands.push({ type: "resetStyles" });
+		// }
 
 		// Arabic Item Name (if any, centered under the menu area, indented)
 		if (item.nameAr) {
@@ -426,11 +431,27 @@ export function generateChelokababTakeawayReceipt(data = {}) {
 			});
 			printCommands.push({ type: "resetStyles" });
 		}
+		if (cancel) {
+			printCommands.push({
+				type: "setStyles",
+				align: "CT",
+				size: [1, 2],
+				style: "B",
+			}); // Not bold for Arabic name as per last image
+			printCommands.push({
+				type: "println",
+				content: centerText(
+					`${indentSpaces}${d("(Cancelled)")}`,
+					menuColumnCharWidth
+				),
+			});
+			printCommands.push({ type: "resetStyles" });
+		}
 
 		// Recursively print sub-items
 		if (item.subItems && item.subItems.length > 0) {
 			item.subItems.forEach((subItem) => {
-				printItemAndSubItems(subItem, indentLevel + 1, true);
+				printItemAndSubItems(subItem, indentLevel + 1, true, cancel);
 			});
 		}
 		// Only draw line after main items or last sub-item of a group
@@ -576,7 +597,7 @@ export function generateChelokababTakeawayReceipt(data = {}) {
 	// Items List (Now uses the recursive helper)
 	if (data.items && data.items.length > 0) {
 		data.items.forEach((item) => {
-			printItemAndSubItems(item, 0, false); // Start with indentLevel 0, not a subItem itself
+			printItemAndSubItems(item, 0, false, data.cancel); // Start with indentLevel 0, not a subItem itself
 		});
 	}
 	// The drawLine after the loop is removed because printItemAndSubItems handles lines after main items.

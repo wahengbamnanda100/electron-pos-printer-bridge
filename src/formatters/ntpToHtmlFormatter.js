@@ -206,18 +206,19 @@ export async function commandsToSimpleHtml( // <<<<------ ASYNC FUNCTION
         html, body { overflow-x: hidden; /* Prevent horizontal scrollbar with fixed width */ }
         body {
             font-family: 'Consolas', 'Menlo', 'Courier New', Courier, monospace;
-            margin: 5mm;
+            margin: 1mm 5mm 1mm 1mm;
+			padding: 2mm
             font-size: 10pt;
             background-color: #fff; /* Ensure white background for printing */
-            width: 70mm; /* Approx 80mm paper width minus some margin */
-            max-width: 70mm; /* Crucial for constraining width */
+            width: 80mm; /* Approx 80mm paper width minus some margin */
+            max-width: 80mm; /* Crucial for constraining width */
             box-sizing: border-box;
         }
         div { /* Base style for all our generated line divs */
             width: 100%; /* Make divs take full available width of the body */
             box-sizing: border-box;
             margin-bottom: 0; /* Reset default div margin if any, control via lineDivStyle */
-            padding: 0;
+            padding: 0 2px;
         }
         pre {
             white-space: pre-wrap; /* Wrap text */
