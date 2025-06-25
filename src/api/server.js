@@ -5,6 +5,7 @@ import bodyParser from "body-parser";
 import { API_PORT } from "../config/index.js";
 import { createPrinterRoutes } from "./routes/printerRoutes.js";
 import { createPrintRoutes } from "./routes/printRoutes.js";
+import { handleDirectPdfPrintRequest } from "../services/printService.js";
 
 export function startApiServer(getDiscoveredPrinters, mainWindow) {
 	const app = express();
@@ -15,6 +16,29 @@ export function startApiServer(getDiscoveredPrinters, mainWindow) {
 
 	app.use("/api/printers", createPrinterRoutes(getDiscoveredPrinters));
 	app.use("/api/print", createPrintRoutes(getDiscoveredPrinters, mainWindow));
+
+	app.post("/api/print-pdf-direct", async (req, res) => {
+		try {
+			// Pass getDiscoveredPrinters and mainWindow similar to the other print route
+			const result = await handleDirectPdfPrintRequest(
+				req.body,
+				getDiscoveredPrinters,
+				mainWindow
+			);
+			res.json(result);
+		} catch (error) {
+			console.error(
+				`API /print-pdf-direct Error: ${error.message}`,
+				error.stack
+			);
+			const statusCode = error.message.toLowerCase().includes("not found")
+				? 404
+				: error.message.toLowerCase().includes("missing")
+				? 400
+				: 500;
+			res.status(statusCode).json({ error: error.message });
+		}
+	});
 
 	app.get("/api/health", (req, res) => {
 		res.status(200).json({ status: "OK", message: "API Server is running." });

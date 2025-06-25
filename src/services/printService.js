@@ -11,13 +11,17 @@ import { generatePrintBufferNTP } from "../formatters/ntpToEscposBufferFormatter
 // 	printHtmlVirtually,
 // 	printPdfVirtually,
 // } from "../printing/virtualPrinter.js";
-import { printVirtually } from "../printing/virtualPrinter.js";
+import {
+	printPdfVirtually,
+	printVirtually,
+} from "../printing/virtualPrinter.js";
 import { printWithPlick } from "../printing/plickPosPrinter.js";
 import { printViaOsCommand } from "../printing/osCommandPrinter.js";
 import { printViaTcpIp } from "../printing/tcpIpPrinter.js";
 import { printViaRawUsb } from "../printing/rawUsbPrinter.js"; // Placeholder
 
 // Node.js core modules for path resolution
+import { shell } from "electron";
 import path from "path";
 import { fileURLToPath } from "url"; // Only if __dirname is not naturally available (ESM context)
 import fs from "fs/promises";
@@ -155,7 +159,10 @@ export async function handlePrintRequest(
 	);
 
 	// --- Route to the correct printing method ---
-
+	console.log(
+		"⚡⚡⚡[printerConfig connectionType]",
+		printerConfig.connectionType
+	);
 	if (printerConfig.isVirtual || printerConfig.connectionType === "VIRTUAL") {
 		console.log(
 			`${logPrefix} Using Electron WebContents.print() for virtual printer.`
@@ -216,5 +223,81 @@ export async function handlePrintRequest(
 		const errorMessage = `Unhandled printer configuration. ConnType: '${printerConfig.connectionType}' for printer '${printerConfig.name}'. Cannot print.`;
 		console.error(`${logPrefix} ${errorMessage}`);
 		throw new Error(errorMessage);
+	}
+}
+
+export async function handleDirectPdfPrintRequest(
+	jobDetails,
+	getDiscoveredPrinters,
+	mainWindow
+) {
+	const {
+		printerName: requestedPrinterName,
+		pdfBase64, // Expecting a base64 encoded PDF string (without "data:application/pdf;base64," prefix)
+		printerOptions = {}, // e.g., { copies: 1, color: false, margins: { marginType: "default" }}
+	} = jobDetails;
+
+	if (!requestedPrinterName) throw new Error("Missing 'printerName'.");
+	if (!pdfBase64) throw new Error("Missing 'pdfBase64' data.");
+
+	const printers = getDiscoveredPrinters();
+	if (!printers) throw new Error("Printer configuration unavailable.");
+
+	// Use the existing helper to find the printer config
+	const printerConfig = findPrinterConfiguration(
+		printers,
+		requestedPrinterName
+	);
+
+	if (!printerConfig) {
+		throw new Error(
+			`Printer named or matching '${requestedPrinterName}' not found or configured.`
+		);
+	}
+
+	const logPrefix = `DIRECT_PDF_PRINT_SVC [${printerConfig.name} (${printerConfig.connectionType})]:`;
+	console.log(
+		`${logPrefix} Received direct PDF print job for printer '${printerConfig.name}'.`
+	);
+
+	let tempPdfPath = "";
+	try {
+		// Decode base64 PDF and write to a temporary file
+		const pdfBuffer = Buffer.from(pdfBase64, "base64");
+		tempPdfPath = path.join(os.tmpdir(), `direct_print_${Date.now()}.pdf`);
+		await fs.writeFile(tempPdfPath, pdfBuffer);
+		console.log(`${logPrefix} Temporary PDF saved to ${tempPdfPath}.`);
+		// shell.openPath(tempPdfPath);
+		const stats = await fs.stat(tempPdfPath);
+		console.log("PDF file size (bytes):", stats.size);
+
+		// Use the existing printPdfVirtually function. It prints a local PDF
+		// to the specified deviceName (which can be a physical OS printer).
+		const result = await printPdfVirtually(
+			tempPdfPath,
+			printerConfig,
+			mainWindow,
+			printerOptions
+		);
+		return result;
+	} catch (printError) {
+		console.error(
+			`${logPrefix} Error in direct PDF printing pipeline:`,
+			printError
+		);
+		throw new Error(
+			`Direct PDF print failed for ${printerConfig.name}: ${printError.message}`
+		);
+	} finally {
+		if (tempPdfPath) {
+			// Clean up the temporary PDF file
+			await fs
+				.unlink(tempPdfPath)
+				.catch((err) =>
+					console.warn(
+						`${logPrefix} Failed to delete temp PDF ${tempPdfPath}: ${err.message}`
+					)
+				);
+		}
 	}
 }

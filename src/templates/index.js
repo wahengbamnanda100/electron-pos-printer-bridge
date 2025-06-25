@@ -7,6 +7,7 @@ export const templateGenerators = {
 	KOT_SAVE: generateTwKitchenTakeawayTicket,
 	TEMP_2: generateChelokababTakeawayReceipt,
 	INV: generateGoCrispyInvoiceReceipt,
+	SAMPLE_KOT: generateGoCrispyInvoiceReceipt,
 
 	// Add more template identifiers and their corresponding functions here
 };
