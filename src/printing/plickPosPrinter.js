@@ -65,6 +65,14 @@ export async function printWithPlick(
 		};
 	} catch (eppError) {
 		console.error(
+			`${logPrefix} @plick/electron-pos-printer error pbj: ${JSON.stringify(
+				eppError,
+				null,
+				2
+			)}`,
+			eppError
+		);
+		console.error(
 			`${logPrefix} @plick/electron-pos-printer error: ${eppError.message}`,
 			eppError
 		);
