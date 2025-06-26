@@ -1,8 +1,9 @@
 import { PosPrinter, isPlickPrinterLoaded } from "../utils/pnpPlickLoader.js";
 import { PLICK_DEFAULT_OPTIONS } from "../config/index.js";
+import { convertNtpToPlick } from "./commandAdapter.js";
 
 export async function printWithPlick(
-	plickDataPayload,
+	originalPayload,
 	printerConfig,
 	printerOptions = {}
 ) {
@@ -11,6 +12,8 @@ export async function printWithPlick(
 	if (!isPlickPrinterLoaded()) {
 		throw new Error("@plick/electron-pos-printer is not loaded. Cannot print.");
 	}
+
+	const plickDataPayload = convertNtpToPlick(originalPayload, paperCharWidth);
 
 	if (!plickDataPayload || plickDataPayload.length === 0) {
 		// Check if it's an intentional empty payload or an error placeholder from the formatter
