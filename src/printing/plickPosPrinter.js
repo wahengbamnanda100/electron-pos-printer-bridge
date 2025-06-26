@@ -5,7 +5,8 @@ import { convertNtpToPlick } from "./commandAdapter.js";
 export async function printWithPlick(
 	originalPayload,
 	printerConfig,
-	printerOptions = {}
+	printerOptions = {},
+	paperCharWidth = 42
 ) {
 	const logPrefix = `PLICK_PRINT [${printerConfig.name}]:`;
 

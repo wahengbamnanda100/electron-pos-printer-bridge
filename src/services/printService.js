@@ -190,7 +190,7 @@ export async function handlePrintRequest(
 			ntpStyleCommands,
 			printerOptions
 		);
-		return printWithPlick(plickDataPayload, printerConfig, printerOptions);
+		return printWithPlick(plickDataPayload, printerConfig, printerOptions, p);
 	} else if (printerConfig.connectionType === "RAW_USB") {
 		console.log(`${logPrefix} Using RAW USB printing path.`);
 		const rawBuffer = await generatePrintBufferNTP(
