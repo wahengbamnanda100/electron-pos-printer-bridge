@@ -18,7 +18,7 @@ export const VIRTUAL_PRINT_OPTIONS = {
 export const PLICK_DEFAULT_OPTIONS = {
 	silent: true,
 	copies: 1,
-	preview: false,
+	preview: true,
 	margin: "0 0 0 0",
 	pageSize: "80mm", // Check Plick docs for default/valid values
 	timeOutPerLine: 400,

@@ -34,6 +34,19 @@ export async function printWithPlick(
 		};
 	}
 
+	const customCss =
+		styleOptions.fontFamily !== "monospace"
+			? `
+		@font-face {
+			font-family: '${styleOptions.fontFamily}';
+			src: url('path/to/your/fonts/${styleOptions.fontFamily}.ttf') format('truetype');
+		}
+		body {
+			font-family: '${styleOptions.fontFamily}', sans-serif;
+		}
+	`
+			: "";
+
 	const plickJobOptions = {
 		printerName: printerConfig.osName || printerConfig.name, // Plick uses the OS name
 		silent:
@@ -46,6 +59,7 @@ export async function printWithPlick(
 		pageSize: printerOptions?.pageSize || PLICK_DEFAULT_OPTIONS.pageSize,
 		timeOutPerLine:
 			printerOptions?.timeOutPerLine || PLICK_DEFAULT_OPTIONS.timeOutPerLine,
+		header: `<style>${customCss}</style>`,
 		...(printerOptions?.plickSpecificOptions || {}),
 	};
 

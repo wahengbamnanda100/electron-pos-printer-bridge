@@ -5,6 +5,7 @@ import bodyParser from "body-parser";
 import { API_PORT } from "../config/index.js";
 import { createPrinterRoutes } from "./routes/printerRoutes.js";
 import { createPrintRoutes } from "./routes/printRoutes.js";
+import { createPdfPrintRoutes } from "./routes/pdfPrintroutes.js";
 import { handleDirectPdfPrintRequest } from "../services/printService.js";
 
 export function startApiServer(getDiscoveredPrinters, mainWindow) {
@@ -16,6 +17,10 @@ export function startApiServer(getDiscoveredPrinters, mainWindow) {
 
 	app.use("/api/printers", createPrinterRoutes(getDiscoveredPrinters));
 	app.use("/api/print", createPrintRoutes(getDiscoveredPrinters, mainWindow));
+	app.use(
+		"/api/print-pdf",
+		createPdfPrintRoutes(getDiscoveredPrinters, mainWindow)
+	);
 
 	app.post("/api/print-pdf-direct", async (req, res) => {
 		try {
