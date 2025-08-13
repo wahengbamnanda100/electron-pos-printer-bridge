@@ -228,82 +228,84 @@
 // }
 
 //!@______________________________________________
-
 /**
- * Converts node-thermal-printer style commands to @plick/electron-pos-printer format.
- * This adapter translates legacy commands into a structure that @plick/electron-pos-printer
- * can render, including handling text styles, alignment, and basic commands.
+ * A universal command adapter that can process both legacy 'node-thermal-printer' commands
+ * and modern '@plick/electron-pos-printer' commands.
  *
- * @param {Array<object>} ntpCommands - Array of command objects from a generator function
- *   like the original `generateTwKitchenTakeawayTicket`.
- * @param {number} [paperCharWidth=42] - Default character width for drawing lines.
- * @returns {Array<object>} - Array of command objects compatible with @plick/electron-pos-printer.
+ * It detects the format and either converts the legacy commands or passes through the
+ * modern commands, making it safe to use in any workflow.
+ *
+ * @param {Array<object>} commands - Array of command objects in either format.
+ * @param {number} [paperCharWidth=42] - Default character width for drawing lines in legacy mode.
+ * @returns {Array<object>} - Array of command objects guaranteed to be compatible with @plick/electron-pos-printer.
  */
-export function convertNtpToPlick(ntpCommands, paperCharWidth = 42) {
+export function convertNtpToPlick(commands, paperCharWidth = 42) {
 	const plickCommands = [];
+	let isLegacyFormat = undefined; // To track the format
 
-	// Holds the current style state, mimicking how a thermal printer processes commands sequentially.
-	let currentStyle = {
+	// Style state for processing legacy commands
+	let legacyStyleState = {
 		textAlign: "left",
 		fontWeight: "normal",
 		fontSize: "1em",
-		fontFamily: "Arial, sans-serif", //"Arial, sans-serif" Default to a monospaced font for better alignment
+		fontFamily: "Arial, sans-serif",
 	};
 
-	/**
-	 * Maps node-thermal-printer alignment constants to CSS textAlign values.
-	 * @param {string} ntpAlign - The NTP alignment ('LT', 'CT', 'RT').
-	 * @returns {string} The corresponding CSS textAlign value.
-	 */
 	const mapNtpAlignToPlick = (ntpAlign) => {
 		switch (ntpAlign) {
 			case "CT":
 				return "center";
 			case "RT":
 				return "right";
-			case "LT":
 			default:
 				return "left";
 		}
 	};
 
-	/**
-	 * Approximates node-thermal-printer font size multipliers to CSS 'em' units.
-	 * @param {Array<number>} ntpSizeArray - The NTP size array (e.g., [1, 2] for double height).
-	 * @returns {string} The corresponding CSS fontSize value in 'em'.
-	 */
 	const mapNtpSizeToPlickFontSize = (ntpSizeArray) => {
-		if (!Array.isArray(ntpSizeArray) || ntpSizeArray.length !== 2) {
-			return "1em"; // Default size
-		}
+		if (!Array.isArray(ntpSizeArray) || ntpSizeArray.length !== 2) return "1em";
 		const [width, height] = ntpSizeArray;
-		// Prioritize height for font-size, as it's the primary scaling factor in CSS.
-		if (height > 1) {
-			return `${1 + (height - 1) * 0.5}em`; // e.g., a height of 2 becomes 1.5em
-		}
-		if (width > 1) {
-			return `${1 + (width - 1) * 0.25}em`; // Slightly increase size for width
-		}
+		if (height > 1) return `${1 + (height - 1) * 0.5}em`;
+		if (width > 1) return `${1 + (width - 1) * 0.25}em`;
 		return "1em";
 	};
 
-	// Process each command from the input array
-	for (const cmd of ntpCommands) {
+	for (const cmd of commands) {
+		// --- Modern Plick Command Detection ---
+		// If the command type is one of these, we assume it's the modern format.
+		if (["text", "divider", "image", "qrCode", "barcode"].includes(cmd.type)) {
+			if (isLegacyFormat === undefined) {
+				isLegacyFormat = false;
+				console.warn(
+					"[Adapter] Modern '@plick' command format detected. The conversion step is not necessary and can be removed for better performance."
+				);
+			}
+			// Pass the command through unchanged
+			plickCommands.push(cmd);
+			continue; // Skip to the next command
+		}
+
+		// --- Legacy NTP Command Conversion ---
+		if (isLegacyFormat === undefined) {
+			isLegacyFormat = true;
+		}
+
 		switch (cmd.type) {
 			case "setStyles":
-				// Update the global style state based on the command properties.
-				if (cmd.align) currentStyle.textAlign = mapNtpAlignToPlick(cmd.align);
-				if (cmd.style)
-					currentStyle.fontWeight = cmd.style.includes("B") ? "bold" : "normal";
+				if (cmd.align)
+					legacyStyleState.textAlign = mapNtpAlignToPlick(cmd.align);
+				if (cmd.style && typeof cmd.style === "string") {
+					legacyStyleState.fontWeight = cmd.style.includes("B")
+						? "bold"
+						: "normal";
+				}
 				if (cmd.size)
-					currentStyle.fontSize = mapNtpSizeToPlickFontSize(cmd.size);
-				// Allow for a custom fontFamily property to be passed in a setStyles command
-				if (cmd.fontFamily) currentStyle.fontFamily = cmd.fontFamily;
+					legacyStyleState.fontSize = mapNtpSizeToPlickFontSize(cmd.size);
+				if (cmd.fontFamily) legacyStyleState.fontFamily = cmd.fontFamily;
 				break;
 
 			case "resetStyles":
-				// Reset the style state to its default values.
-				currentStyle = {
+				legacyStyleState = {
 					textAlign: "left",
 					fontWeight: "normal",
 					fontSize: "1em",
@@ -312,13 +314,11 @@ export function convertNtpToPlick(ntpCommands, paperCharWidth = 42) {
 				break;
 
 			case "println":
-				// Create a Plick text command.
-				// It starts with the current global style and overrides any properties
-				// specified directly in the println command itself.
-				const finalStyle = { ...currentStyle };
+				const finalStyle = { ...legacyStyleState };
 				if (cmd.align) finalStyle.textAlign = mapNtpAlignToPlick(cmd.align);
-				if (cmd.style)
+				if (cmd.style && typeof cmd.style === "string") {
 					finalStyle.fontWeight = cmd.style.includes("B") ? "bold" : "normal";
+				}
 				if (cmd.size) finalStyle.fontSize = mapNtpSizeToPlickFontSize(cmd.size);
 				if (cmd.fontFamily) finalStyle.fontFamily = cmd.fontFamily;
 
@@ -330,32 +330,23 @@ export function convertNtpToPlick(ntpCommands, paperCharWidth = 42) {
 				break;
 
 			case "feed":
-				// Plick doesn't have a direct 'feed' command. We simulate it by adding
-				// empty text lines, which effectively creates vertical space.
 				const lines = cmd.lines || 1;
 				for (let i = 0; i < lines; i++) {
-					// Using a non-empty space ensures the line is rendered.
 					plickCommands.push({ type: "text", value: " " });
 				}
 				break;
 
 			case "cut":
-				// Directly map to Plick's 'cut' command.
 				plickCommands.push({ type: "cut" });
 				break;
 
 			case "drawLine":
-				// Use Plick's semantic 'divider' command, which is cleaner than printing dashes.
 				plickCommands.push({ type: "divider" });
 				break;
 
-			// Note: 'tableCustom', 'image', etc., would be translated here if needed.
-			// The provided template does not use them, so they are omitted for clarity.
-
 			default:
-				// Log a warning for any command types that this adapter doesn't know how to handle.
 				console.warn(
-					`[NTP to Plick Adapter] Unsupported command type: "${cmd.type}"`,
+					`[Adapter] Unsupported or unknown command type: "${cmd.type}"`,
 					cmd
 				);
 		}

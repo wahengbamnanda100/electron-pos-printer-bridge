@@ -467,7 +467,7 @@
  * // ... (other JSDoc params)
  * @returns {Array<object>} - Array of print command objects for @plick/electron-pos-printer.
  */
-export function generatePlickKitchenTicket(data = {}) {
+export function generateTwKitchenTakeawayTicket(data = {}) {
 	const plickCommands = [];
 	const paperCharWidth = 42;
 	const FONT_FAMILY = data.fontFamily || "Arial, sans-serif"; // Default to a monospaced font

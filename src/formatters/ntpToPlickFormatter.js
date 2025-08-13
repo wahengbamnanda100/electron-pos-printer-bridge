@@ -49,8 +49,8 @@ export function mapNTPCommandsToPlickData(ntpCommands, printerOptions = {}) {
 			defaultTextAlign = "right";
 
 		const style = {
-			fontWeight: cmd.style?.includes("B") ? "bold" : "normal",
-			textDecoration: cmd.style?.includes("U") ? "underline" : "none",
+			fontWeight: cmd.style?.fontWeight,
+			// textDecoration: cmd.style?.includes("U") ? "underline" : "none",
 			textAlign: defaultTextAlign,
 			fontSize: "12px", // Default
 		};

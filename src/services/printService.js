@@ -96,6 +96,136 @@ function findPrinterConfiguration(printers, requestedPrinterName) {
 	return null; // No printer found
 }
 
+// export async function handlePrintRequest(
+// 	jobDetails,
+// 	getDiscoveredPrinters,
+// 	mainWindow
+// ) {
+// 	const {
+// 		printerName,
+// 		templateType,
+// 		templateData,
+// 		printerOptions = {},
+// 	} = jobDetails;
+
+// 	if (!printerName) throw new Error("Missing 'printerName'.");
+// 	if (!templateType) throw new Error("Missing 'templateType'.");
+// 	if (templateData === undefined) throw new Error("Missing 'templateData'.");
+
+// 	const printers = getDiscoveredPrinters();
+// 	if (!printers) throw new Error("Printer configuration unavailable.");
+
+// 	// const printerConfig = printers.find(
+// 	// 	(p) =>
+// 	// 		p.name.toLowerCase() === printerName.toLowerCase() ||
+// 	// 		(p.osName && p.osName.toLowerCase() === printerName.toLowerCase())
+// 	// );
+
+// 	const printerConfig = findPrinterConfiguration(printers, printerName);
+
+// 	if (!printerConfig) {
+// 		throw new Error(`Printer named '${printerName}' not found.`);
+// 	}
+
+// 	let ntpStyleCommands;
+
+// 	const finalTemplateData = {
+// 		...templateData, // Spread incoming data from API
+// 		logoPath: fixedLogoPath, // Override or add the fixed local logo path
+// 		// This path will be used by both NTP and PDF templates
+// 	};
+// 	try {
+// 		const templateFunction = getTemplateFunction(templateType);
+// 		ntpStyleCommands = templateFunction(finalTemplateData);
+// 		if (!Array.isArray(ntpStyleCommands)) {
+// 			throw new Error("Template did not return an array of commands.");
+// 		}
+// 		console.log(
+// 			`PrintService: Generated ${ntpStyleCommands.length} NTP-style commands via template '${templateType}' for '${printerConfig.name}'.`
+// 		);
+// 	} catch (templateError) {
+// 		console.error(
+// 			`PrintService: Error generating print data from template '${templateType}':`,
+// 			templateError
+// 		);
+// 		throw new Error(`Template error: ${templateError.message}`);
+// 	}
+
+// 	const logPrefix = `PRINT_SVC [${printerConfig.name} (${printerConfig.connectionType})]:`;
+// 	console.log(
+// 		`${logPrefix} Job using template '${templateType}'. Virtual: ${
+// 			printerConfig.isVirtual
+// 		}, Target: ${printerConfig.osName || printerConfig.name}`
+// 	);
+
+// 	// --- Route to the correct printing method ---
+// 	console.log(
+// 		"⚡⚡⚡[printerConfig connectionType]",
+// 		printerConfig.connectionType
+// 	);
+// 	if (printerConfig.isVirtual || printerConfig.connectionType === "VIRTUAL") {
+// 		console.log(
+// 			`${logPrefix} Using Electron WebContents.print() for virtual printer.`
+// 		);
+// 		const htmlContent = await commandsToSimpleHtml(
+// 			ntpStyleCommands,
+// 			`Print to ${printerConfig.name}`
+// 		);
+// 		return printVirtually(
+// 			htmlContent,
+// 			printerConfig,
+// 			mainWindow,
+// 			printerOptions
+// 		);
+// 	} else if (
+// 		printerConfig.connectionType === "OS_PLICK" ||
+// 		(printerConfig.connectionType === "MDNS_LAN" &&
+// 			printerConfig.osName &&
+// 			printerConfig.isPlickCompatible) // Add a flag if MDNS can be Plick
+// 	) {
+// 		console.log(
+// 			`${logPrefix} Using @plick/electron-pos-printer for physical printer.`
+// 		);
+// 		const plickDataPayload = mapNTPCommandsToPlickData(
+// 			ntpStyleCommands,
+// 			printerOptions
+// 		);
+// 		return printWithPlick(ntpStyleCommands, printerConfig, printerOptions);
+// 	} else if (printerConfig.connectionType === "RAW_USB") {
+// 		console.log(`${logPrefix} Using RAW USB printing path.`);
+// 		const rawBuffer = await generatePrintBufferNTP(
+// 			ntpStyleCommands,
+// 			printerOptions
+// 		);
+// 		return printViaRawUsb(rawBuffer, printerConfig, printerOptions); // This is a stub
+// 	} else if (
+// 		printerConfig.connectionType &&
+// 		printerConfig.connectionType.startsWith("OS_") &&
+// 		printerConfig.osName
+// 	) {
+// 		// OS_USB, OS_LAN, OS_LOCAL (via command line), but not OS_PLICK (handled above)
+// 		console.log(`${logPrefix} Using OS command line printing.`);
+// 		const rawBufferOs = await generatePrintBufferNTP(
+// 			ntpStyleCommands,
+// 			printerOptions
+// 		);
+// 		return printViaOsCommand(rawBufferOs, printerConfig, printerOptions);
+// 	} else if (
+// 		printerConfig.connectionType === "MDNS_LAN" &&
+// 		printerConfig.ip &&
+// 		printerConfig.port
+// 	) {
+// 		// Direct TCP/IP printing for MDNS_LAN not handled by Plick/OS Name
+// 		console.log(`${logPrefix} Using direct TCP/IP printing.`);
+// 		// For TCP/IP with node-thermal-printer, we pass the NTP-style commands directly
+// 		return printViaTcpIp(ntpStyleCommands, printerConfig, printerOptions);
+// 	} else {
+// 		const errorMessage = `Unhandled printer configuration. ConnType: '${printerConfig.connectionType}' for printer '${printerConfig.name}'. Cannot print.`;
+// 		console.error(`${logPrefix} ${errorMessage}`);
+// 		throw new Error(errorMessage);
+// 	}
+// }
+
 export async function handlePrintRequest(
 	jobDetails,
 	getDiscoveredPrinters,
@@ -115,33 +245,27 @@ export async function handlePrintRequest(
 	const printers = getDiscoveredPrinters();
 	if (!printers) throw new Error("Printer configuration unavailable.");
 
-	// const printerConfig = printers.find(
-	// 	(p) =>
-	// 		p.name.toLowerCase() === printerName.toLowerCase() ||
-	// 		(p.osName && p.osName.toLowerCase() === printerName.toLowerCase())
-	// );
-
 	const printerConfig = findPrinterConfiguration(printers, printerName);
 
 	if (!printerConfig) {
 		throw new Error(`Printer named '${printerName}' not found.`);
 	}
 
-	let ntpStyleCommands;
+	// Renamed to be format-agnostic
+	let generatedCommands;
 
 	const finalTemplateData = {
-		...templateData, // Spread incoming data from API
-		logoPath: fixedLogoPath, // Override or add the fixed local logo path
-		// This path will be used by both NTP and PDF templates
+		...templateData,
+		logoPath: fixedLogoPath,
 	};
 	try {
 		const templateFunction = getTemplateFunction(templateType);
-		ntpStyleCommands = templateFunction(finalTemplateData);
-		if (!Array.isArray(ntpStyleCommands)) {
+		generatedCommands = templateFunction(finalTemplateData);
+		if (!Array.isArray(generatedCommands)) {
 			throw new Error("Template did not return an array of commands.");
 		}
 		console.log(
-			`PrintService: Generated ${ntpStyleCommands.length} NTP-style commands via template '${templateType}' for '${printerConfig.name}'.`
+			`PrintService: Generated ${generatedCommands.length} commands via template '${templateType}' for '${printerConfig.name}'.`
 		);
 	} catch (templateError) {
 		console.error(
@@ -158,17 +282,18 @@ export async function handlePrintRequest(
 		}, Target: ${printerConfig.osName || printerConfig.name}`
 	);
 
-	// --- Route to the correct printing method ---
 	console.log(
 		"⚡⚡⚡[printerConfig connectionType]",
 		printerConfig.connectionType
 	);
+
+	// --- Route to the correct printing method ---
 	if (printerConfig.isVirtual || printerConfig.connectionType === "VIRTUAL") {
 		console.log(
 			`${logPrefix} Using Electron WebContents.print() for virtual printer.`
 		);
 		const htmlContent = await commandsToSimpleHtml(
-			ntpStyleCommands,
+			generatedCommands,
 			`Print to ${printerConfig.name}`
 		);
 		return printVirtually(
@@ -177,36 +302,68 @@ export async function handlePrintRequest(
 			mainWindow,
 			printerOptions
 		);
-	} else if (
+	}
+	// ====================================================================
+	// >>>>>>>>>> START OF MODIFIED LOGIC FOR PLICK PRINTERS <<<<<<<<<<
+	// ====================================================================
+	else if (
 		printerConfig.connectionType === "OS_PLICK" ||
 		(printerConfig.connectionType === "MDNS_LAN" &&
 			printerConfig.osName &&
-			printerConfig.isPlickCompatible) // Add a flag if MDNS can be Plick
+			printerConfig.isPlickCompatible)
 	) {
 		console.log(
 			`${logPrefix} Using @plick/electron-pos-printer for physical printer.`
 		);
-		const plickDataPayload = mapNTPCommandsToPlickData(
-			ntpStyleCommands,
-			printerOptions
-		);
-		return printWithPlick(plickDataPayload, printerConfig, printerOptions);
-	} else if (printerConfig.connectionType === "RAW_USB") {
+
+		let finalPlickCommands;
+
+		// Heuristic check: If the first command looks like a modern Plick command,
+		// assume the entire array is already in the correct format.
+		const isNativePlickFormat =
+			generatedCommands.length > 0 &&
+			["text", "divider", "feed", "image", "qrCode", "barcode"].includes(
+				generatedCommands[0].type
+			);
+
+		if (isNativePlickFormat) {
+			console.log(
+				`${logPrefix} Template output appears to be in native Plick format. Bypassing adapter.`
+			);
+			// The template output is already correct, use it directly.
+			finalPlickCommands = generatedCommands;
+		} else {
+			// Otherwise, use the adapter as a fallback for legacy NTP-style templates.
+			console.log(
+				`${logPrefix} Template output appears to be in legacy NTP format. Using adapter for conversion.`
+			);
+			finalPlickCommands = mapNTPCommandsToPlickData(
+				generatedCommands,
+				printerOptions
+			);
+		}
+
+		// The variable passed to the printer now contains correctly formatted commands.
+		return printWithPlick(finalPlickCommands, printerConfig, printerOptions);
+	}
+	// ====================================================================
+	// >>>>>>>>>> END OF MODIFIED LOGIC <<<<<<<<<<
+	// ====================================================================
+	else if (printerConfig.connectionType === "RAW_USB") {
 		console.log(`${logPrefix} Using RAW USB printing path.`);
 		const rawBuffer = await generatePrintBufferNTP(
-			ntpStyleCommands,
+			generatedCommands,
 			printerOptions
 		);
-		return printViaRawUsb(rawBuffer, printerConfig, printerOptions); // This is a stub
+		return printViaRawUsb(rawBuffer, printerConfig, printerOptions);
 	} else if (
 		printerConfig.connectionType &&
 		printerConfig.connectionType.startsWith("OS_") &&
 		printerConfig.osName
 	) {
-		// OS_USB, OS_LAN, OS_LOCAL (via command line), but not OS_PLICK (handled above)
 		console.log(`${logPrefix} Using OS command line printing.`);
 		const rawBufferOs = await generatePrintBufferNTP(
-			ntpStyleCommands,
+			generatedCommands,
 			printerOptions
 		);
 		return printViaOsCommand(rawBufferOs, printerConfig, printerOptions);
@@ -215,10 +372,8 @@ export async function handlePrintRequest(
 		printerConfig.ip &&
 		printerConfig.port
 	) {
-		// Direct TCP/IP printing for MDNS_LAN not handled by Plick/OS Name
 		console.log(`${logPrefix} Using direct TCP/IP printing.`);
-		// For TCP/IP with node-thermal-printer, we pass the NTP-style commands directly
-		return printViaTcpIp(ntpStyleCommands, printerConfig, printerOptions);
+		return printViaTcpIp(generatedCommands, printerConfig, printerOptions);
 	} else {
 		const errorMessage = `Unhandled printer configuration. ConnType: '${printerConfig.connectionType}' for printer '${printerConfig.name}'. Cannot print.`;
 		console.error(`${logPrefix} ${errorMessage}`);
