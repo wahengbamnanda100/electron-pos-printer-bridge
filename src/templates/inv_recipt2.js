@@ -1,12 +1,8 @@
 // src/utils/thermalReceiptTemplate.js
 
-/**
- * Generates a thermal receipt template matching the exact format shown in the image
- * @param {DetailedInvoiceTemplateData} data - Invoice data from processRawInvoiceData function
- * @returns {Array} Receipt template array for @plick/electron-pos-printer
- */
 export function generateGoCrispyInvoiceReceipt(data) {
 	const {
+		logo,
 		storeName,
 		orderType,
 		currentdate,
@@ -34,16 +30,54 @@ export function generateGoCrispyInvoiceReceipt(data) {
 		close,
 	} = data;
 
+	// Base styles
 	const baseFont = {
 		fontFamily: "Arial, sans-serif",
 		fontSize: "12px",
 	};
 
-	const makeLine = (char = "-") => char.repeat(48);
+	const arabicFont = {
+		fontFamily: "Tahoma, Arial, sans-serif",
+		fontSize: "12px",
+		direction: "rtl",
+		textAlign: "right",
+	};
+
+	// Helper functions
+	const makeLine = (char = "-") => char.repeat(63);
+
+	const createBilingualText = (englishText, arabicText, style = {}) => ({
+		type: "text",
+		value: `${englishText}\n${arabicText}`,
+		style: {
+			...baseFont,
+			whiteSpace: "pre-line",
+			...style,
+		},
+	});
+
+	const createArabicText = (text, style = {}) => ({
+		type: "text",
+		value: text,
+		style: {
+			...arabicFont,
+			...style,
+		},
+	});
 
 	const receipt = [];
 
-	// ===== HEADER =====
+	// ===== HEADER SECTION =====
+	if (logo) {
+		receipt.push({
+			type: "image",
+			url: logo,
+			position: "center",
+			width: "80px",
+			height: "80px",
+		});
+	}
+
 	if (storeName) {
 		receipt.push({
 			type: "text",
@@ -57,301 +91,406 @@ export function generateGoCrispyInvoiceReceipt(data) {
 		});
 	}
 
-	// Store location in Arabic
-	receipt.push({
-		type: "text",
-		value: "الوجبة",
-		style: {
-			...baseFont,
+	// Arabic restaurant name
+	receipt.push(
+		createArabicText("الوجبة", {
 			fontSize: "12px",
 			textAlign: "center",
+		})
+	);
+
+	// Contact information - bilingual
+	// receipt.push(
+	// 	createBilingualText("Tel :", "تليفون :", {
+	// 		fontSize: "10px",
+	// 		textAlign: "center",
+	// 	})
+	// );
+	receipt.push({
+		type: "text",
+		value: "Tel : : تليفون",
+		style: { ...baseFont, textAlign: "center", whiteSpace: "pre-line" },
+	});
+
+	// receipt.push(
+	// 	createBilingualText("Fax :", "فاكس :", {
+	// 		fontSize: "10px",
+	// 		textAlign: "center",
+	// 	})
+	// );
+
+	receipt.push({
+		type: "text",
+		value: "Fax : : فاكس",
+		style: { ...baseFont, textAlign: "center", whiteSpace: "pre-line" },
+	});
+
+	receipt.push({
+		type: "text",
+		value: makeLine(),
+		style: baseFont,
+	});
+
+	// ===== INVOICE DETAILS SECTION =====
+	const invoiceDetailsTable = [
+		[
+			{
+				type: "text",
+				value: `Date : ${invoiceDate}`,
+				style: { textAlign: "left" },
+			},
+			{
+				type: "text",
+				value: `Time : ${invoiceTime}`,
+				style: { textAlign: "right" },
+			},
+		],
+		[
+			{
+				type: "text",
+				value: `Bill No : ${billNo}`,
+				style: { textAlign: "left" },
+			},
+			{
+				type: "text",
+				value: `Pax : ${pax || ""}`,
+				style: { textAlign: "right" },
+			},
+		],
+		[
+			{
+				type: "text",
+				value: `KOT No : `,
+				style: {
+					textAlign: "left",
+					fontWeight: "bold",
+					borderTop: "1px solid black",
+					borderBottom: "1px solid black",
+				},
+			},
+			{
+				type: "text",
+				value: kotNo || "",
+				style: {
+					textAlign: "left",
+					fontWeight: "bold",
+					borderTop: "1px solid black",
+					borderBottom: "1px solid black",
+				},
+			},
+		],
+		[
+			{
+				type: "text",
+				value: "Delivery Date/Time :",
+				style: { textAlign: "left" },
+			},
+			{
+				type: "text",
+				value: deliveryDateTime || "",
+				style: { textAlign: "left" },
+			},
+		],
+		[
+			{ type: "text", value: `Staff :`, style: { textAlign: "left" } },
+			{ type: "text", value: staffName || "", style: { textAlign: "left" } },
+		],
+	].filter((row) => row.length);
+
+	receipt.push({
+		type: "table",
+		style: { ...baseFont, fontSize: "10px" },
+		tableHeader: [],
+		tableBody: invoiceDetailsTable,
+		tableFooter: [],
+		tableHeaderStyle: { backgroundColor: "#ffffffff", color: "black" },
+		tableBodyStyle: { textAlign: "left" },
+		tableFooterStyle: { backgroundColor: "#ffffffff", color: "black" },
+		tableHeaderCellStyle: { padding: "2px 2px" },
+		tableBodyCellStyle: { padding: "2px", textAlign: "left" },
+		tableFooterCellStyle: { padding: "5px 2px", fontWeight: "400" },
+	});
+
+	receipt.push({
+		type: "text",
+		value: makeLine(),
+		style: baseFont,
+	});
+
+	// ===== CUSTOMER DETAILS SECTION =====
+	const customerTableBody = [];
+
+	if (customerName) {
+		customerTableBody.push([`Customer Name : ${customerName}`]);
+	}
+
+	if (customerMobile) {
+		customerTableBody.push([`Mobile Number : ${customerMobile}`]);
+	}
+
+	if (deliveryAddress?.length > 0) {
+		deliveryAddress
+			.split(",")
+			.forEach((line) => customerTableBody.push([line.trim()]));
+	}
+
+	if (customerTableBody.length > 0) {
+		receipt.push({
+			type: "table",
+			style: { ...baseFont, fontSize: "12px" },
+			tableHeader: [],
+			tableBody: customerTableBody,
+			tableFooter: [],
+			tableHeaderStyle: { backgroundColor: "#ffffffff", color: "black" },
+			tableBodyStyle: {},
+			tableFooterStyle: { backgroundColor: "#ffffffff", color: "black" },
+			tableHeaderCellStyle: { padding: "2px 2px" },
+			tableBodyCellStyle: { padding: "2px", textAlign: "left" },
+			tableFooterCellStyle: { padding: "5px 2px", fontWeight: "400" },
+		});
+
+		receipt.push({
+			type: "text",
+			value: makeLine(),
+			style: baseFont,
+		});
+	}
+
+	// Order type header
+	receipt.push({
+		type: "text",
+		value: `*** ${orderType} ***`,
+		style: {
+			...baseFont,
+			textAlign: "center",
+			fontWeight: "bold",
+			width: "100%",
+			padding: "4px",
 		},
 	});
 
-	// Tel and Fax placeholders
-	receipt.push({
-		type: "text",
-		value: "Tel : تليفون",
-		style: { ...baseFont, fontSize: "10px", textAlign: "center" },
-	});
-	receipt.push({
-		type: "text",
-		value: "Fax : فاكس",
-		style: { ...baseFont, fontSize: "10px", textAlign: "center" },
-	});
-
-	receipt.push({ type: "text", value: makeLine(), style: baseFont });
-
-	// ===== INVOICE DETAILS =====
-	receipt.push({
-		type: "text",
-		value: `Date : ${invoiceDate}    Time : ${invoiceTime}`,
-		style: { ...baseFont, fontSize: "10px" },
-	});
-	receipt.push({
-		type: "text",
-		value: `Bill : ${billNo}  Pax : ${pax}`,
-		style: { ...baseFont, fontSize: "10px" },
-	});
-	receipt.push({
-		type: "text",
-		value: `KOT No. : ${kotNo || ""}`,
-		style: { ...baseFont, fontSize: "10px" },
-	});
-	if (deliveryDateTime) {
-		receipt.push({
-			type: "text",
-			value: `Delivery Date : ${deliveryDateTime}`,
-			style: { ...baseFont, fontSize: "10px" },
-		});
-	}
-	if (staffName) {
-		receipt.push({
-			type: "text",
-			value: staffName,
-			style: { ...baseFont, fontSize: "10px" },
-		});
-	}
-
-	receipt.push({ type: "text", value: makeLine(), style: baseFont });
-
-	// ===== CUSTOMER DETAILS =====
-	if (customerName) {
-		receipt.push({
-			type: "text",
-			value: `Customer Name : ${customerName}`,
-			style: { ...baseFont, fontSize: "10px" },
-		});
-	}
-	if (customerMobile) {
-		receipt.push({
-			type: "text",
-			value: `Mobile Number : ${customerMobile}`,
-			style: { ...baseFont, fontSize: "10px" },
-		});
-	}
-
-	// Delivery address components (if available)
-	if (deliveryAddress) {
-		const addressLines = deliveryAddress.split(", ");
-		addressLines.forEach((line) => {
-			if (line.trim()) {
-				receipt.push({
-					type: "text",
-					value: line.trim(),
-					style: { ...baseFont, fontSize: "10px" },
-				});
-			}
-		});
-	}
-
-	receipt.push({ type: "text", value: makeLine(), style: baseFont });
-
-	// ===== ITEMS TABLE HEADER =====
-	receipt.push({
-		type: "text",
-		value: "Menu                    Qty Amount(QAR)",
-		style: { ...baseFont, fontSize: "10px", fontWeight: "bold" },
-	});
-	receipt.push({
-		type: "text",
-		value: "قائمة الطعام              كمية    المبلغ",
-		style: { ...baseFont, fontSize: "10px" },
-	});
-
-	receipt.push({ type: "text", value: makeLine(), style: baseFont });
-
-	// ===== ITEMS =====
-	items.forEach((item) => {
-		// Main item - English name
-		const itemQty = item.qty || "1";
-		const itemAmount = parseFloat(item.amount || "0").toFixed(2);
-
-		// Format main item line
-		const itemLine = `${item.name.padEnd(20)} ${itemQty.padStart(
-			3
-		)} ${itemAmount.padStart(8)}`;
-		receipt.push({
-			type: "text",
-			value: itemLine,
-			style: { ...baseFont, fontSize: "10px", fontWeight: "bold" },
-		});
-
-		// Arabic name on next line if available
-		if (item.nameAr) {
-			receipt.push({
+	// ===== ITEMS TABLE SECTION =====
+	const itemTableBody = items.flatMap((item) => {
+		const mainItemRow = [
+			{
 				type: "text",
-				value: item.nameAr,
-				style: { ...baseFont, fontSize: "10px" },
-			});
-		}
+				value: item.nameAr ? `${item.name}\n${item.nameAr}` : item.name,
+				style: {
+					textAlign: "left",
+					whiteSpace: "pre-line",
+					...(item.nameAr && { direction: "ltr" }),
+				},
+			},
+			{
+				type: "text",
+				value: item.qty || "1",
+				style: { textAlign: "right" },
+			},
+			{
+				type: "text",
+				value: parseFloat(item.amount || "0").toFixed(2),
+				style: { textAlign: "right" },
+			},
+		];
 
-		// Subitems
+		const rows = [mainItemRow];
+
+		// Add subitems if they exist
 		if (item.subitems?.length) {
 			item.subitems.forEach((sub) => {
-				const subQty = sub.qty || "1";
-				const subAmount = parseFloat(sub.amount || "0").toFixed(2);
-
-				// Format subitem line with indentation
-				const subLine = `  ${sub.name.padEnd(18)} ${subQty.padStart(
-					3
-				)} ${subAmount.padStart(8)}`;
-				receipt.push({
-					type: "text",
-					value: subLine,
-					style: { ...baseFont, fontSize: "10px" },
-				});
-
-				// Arabic subitem name
-				if (sub.nameAr) {
-					receipt.push({
+				rows.push([
+					{
 						type: "text",
-						value: `  ${sub.nameAr}`,
-						style: { ...baseFont, fontSize: "10px" },
-					});
-				}
+						value: sub.nameAr
+							? `   --${sub.name}\n   ${sub.nameAr}`
+							: `   --${sub.name}`,
+						style: {
+							textAlign: "left",
+							whiteSpace: "pre-line",
+							...(sub.nameAr && { direction: "ltr" }),
+						},
+					},
+					{
+						type: "text",
+						value: sub.qty || "1",
+						style: { textAlign: "right" },
+					},
+					{
+						type: "text",
+						value: parseFloat(sub.amount || "0").toFixed(2),
+						style: { textAlign: "right" },
+					},
+				]);
 			});
 		}
-	});
 
-	receipt.push({ type: "text", value: makeLine(), style: baseFont });
-
-	// ===== AMOUNT TOTALS =====
-	receipt.push({
-		type: "text",
-		value: `Gross Amount :             ${parseFloat(grossAmount).toFixed(2)}`,
-		style: { ...baseFont, fontSize: "10px", fontWeight: "bold" },
-	});
-	receipt.push({
-		type: "text",
-		value: "إجمالي المبلغ",
-		style: { ...baseFont, fontSize: "10px" },
+		return rows;
 	});
 
 	receipt.push({
-		type: "text",
-		value: `Discount :                 ${parseFloat(
-			discountAmountTotal || "0"
-		).toFixed(2)}`,
-		style: { ...baseFont, fontSize: "10px" },
+		type: "table",
+		style: { fontFamily: "Tahoma, Arial, sans-serif", fontSize: "12px" },
+		tableHeader: [
+			{ type: "text", value: "Menu", style: { textAlign: "left" } },
+			{ type: "text", value: "Qty", style: { textAlign: "left" } },
+			{ type: "text", value: "Amount(QAR)", style: { textAlign: "left" } },
+		],
+		tableBody: itemTableBody,
+		tableFooter: [],
+		tableHeaderStyle: { backgroundColor: "#ffffffff", color: "black" },
+		tableBodyStyle: {},
+		tableFooterStyle: { backgroundColor: "#ffffffff", color: "black" },
+		tableHeaderCellStyle: { padding: "2px 2px" },
+		tableBodyCellStyle: { padding: "2px", textAlign: "left" },
+		tableFooterCellStyle: { padding: "5px 2px", fontWeight: "400" },
 	});
 
-	if (parseFloat(deliveryCharge || "0") > 0) {
-		receipt.push({
+	receipt.push({
+		type: "text",
+		value: makeLine(),
+		style: baseFont,
+	});
+
+	// ===== TOTALS SECTION =====
+	const createTotalRow = (englishLabel, arabicLabel, amount) => [
+		{
 			type: "text",
-			value: `Delivery Charge :          ${parseFloat(deliveryCharge).toFixed(
-				2
-			)}`,
-			style: { ...baseFont, fontSize: "10px" },
-		});
-	}
+			value: `${englishLabel}\n${arabicLabel}`,
+			style: {
+				textAlign: "right",
+				fontWeight: "bold",
+				whiteSpace: "pre-line",
+				direction: "ltr",
+			},
+		},
+		{
+			type: "text",
+			value: parseFloat(amount).toFixed(2),
+			style: { textAlign: "right", fontWeight: "bold" },
+		},
+	];
+
+	const totalTable = [
+		createTotalRow("Gross Amount", "إجمالي المبلغ", grossAmount),
+		createTotalRow("Discount", "خصم", discountAmountTotal || "0"),
+		createTotalRow("Balance", "الرصيد المتبقي", balanceAmount),
+		createTotalRow("Delivery Charge", "رسوم التوصيل", deliveryCharge),
+		createTotalRow("Net Amount", "صافي المبلغ", netAmount),
+	];
 
 	receipt.push({
-		type: "text",
-		value: `Net Amount :               ${parseFloat(netAmount).toFixed(2)}`,
-		style: { ...baseFont, fontSize: "10px", fontWeight: "bold" },
-	});
-	receipt.push({
-		type: "text",
-		value: "صافي المبلغ",
-		style: { ...baseFont, fontSize: "10px" },
-	});
-
-	receipt.push({ type: "text", value: makeLine(), style: baseFont });
-
-	receipt.push({
-		type: "text",
-		value: `Paid Amount :              ${parseFloat(paidAmount).toFixed(2)}`,
-		style: { ...baseFont, fontSize: "10px", fontWeight: "bold" },
-	});
-	receipt.push({
-		type: "text",
-		value: "المبلغ المدفوع",
-		style: { ...baseFont, fontSize: "10px" },
-	});
-
-	if (parseFloat(balanceAmount || "0") > 0) {
-		receipt.push({
-			type: "text",
-			value: `Balance :                  ${parseFloat(balanceAmount).toFixed(
-				2
-			)}`,
-			style: { ...baseFont, fontSize: "10px", fontWeight: "bold" },
-		});
-		receipt.push({
-			type: "text",
-			value: "الرصيد المتبقي",
-			style: { ...baseFont, fontSize: "10px" },
-		});
-	}
-
-	receipt.push({ type: "text", value: makeLine(), style: baseFont });
-
-	// ===== SETTLEMENT DETAILS =====
-	if (settlements?.length) {
-		receipt.push({
-			type: "text",
-			value: "SETTLEMENT DETAILS",
-			style: { ...baseFont, fontSize: "10px", fontWeight: "bold" },
-		});
-		receipt.push({
-			type: "text",
-			value: "تفاصيل طريقة السداد",
-			style: { ...baseFont, fontSize: "10px" },
-		});
-
-		settlements.forEach((settlement) => {
-			let paymentMethod = settlement.method;
-			let paymentMethodAr = "";
-
-			// Map payment methods to Arabic
-			switch (settlement.method.toLowerCase()) {
-				case "cash":
-					paymentMethodAr = "نقدي";
-					break;
-				case "card":
-				case "credit card":
-					paymentMethodAr = "بطاقة ائتمان";
-					break;
-				case "voucher":
-					paymentMethodAr = "قسيمة";
-					break;
-				case "staff":
-					paymentMethodAr = "موظف";
-					break;
-				default:
-					paymentMethodAr = "دفع";
-			}
-
-			const settlementLine = `${paymentMethod.padEnd(15)} : ${parseFloat(
-				settlement.amount
-			).toFixed(2)}`;
-			receipt.push({
-				type: "text",
-				value: settlementLine,
-				style: { ...baseFont, fontSize: "10px" },
-			});
-
-			if (settlement.cardNo) {
-				receipt.push({
+		type: "table",
+		style: { fontFamily: "Tahoma, Arial, sans-serif", fontSize: "12px" },
+		tableHeader: [],
+		tableBody: totalTable,
+		tableFooter: [
+			[
+				{
 					type: "text",
-					value: `                      CAR ${settlement.cardNo}`,
-					style: { ...baseFont, fontSize: "10px" },
-				});
-			}
+					value: "Paid Amount :\nالمبلغ المدفوع :",
+					style: {
+						textAlign: "right",
+						fontWeight: "bold",
+						whiteSpace: "pre-line",
+						direction: "ltr",
+					},
+				},
+				{
+					type: "text",
+					value: `${paidAmount}`,
+					style: { textAlign: "right", fontWeight: "bold" },
+				},
+			],
+		],
+		tableHeaderStyle: { backgroundColor: "#ffffffff", color: "black" },
+		tableBodyStyle: {},
+		tableFooterStyle: {
+			backgroundColor: "#ffffffff",
+			borderTop: "1px solid black",
+			color: "black",
+		},
+		tableHeaderCellStyle: { padding: "2px 2px" },
+		tableBodyCellStyle: {
+			padding: "2px",
+			textAlign: "left",
+			fontWeight: "bold",
+		},
+		tableFooterCellStyle: {
+			padding: "5px 2px",
+			fontWeight: "bold",
+			borderTop: "1px solid black",
+		},
+	});
 
-			// Add Arabic translation
-			receipt.push({
+	receipt.push({
+		type: "text",
+		value: makeLine(),
+		style: baseFont,
+	});
+
+	// ===== SETTLEMENT DETAILS SECTION =====
+	if (settlements?.length) {
+		receipt.push(
+			createBilingualText("SETTLEMENT DETAILS", "تفاصيل التسوية", {
+				fontWeight: "bold",
+				textAlign: "center",
+				marginBottom: "4px",
+			})
+		);
+
+		const getPaymentMethodArabic = (method) => {
+			const translations = {
+				cash: "نقدي",
+				card: "بطاقة ائتمان",
+				"credit card": "بطاقة ائتمان",
+				voucher: "قسيمة",
+				staff: "موظف",
+				default: "دفع",
+			};
+			return translations[method.toLowerCase()] || translations["default"];
+		};
+
+		const settlementTableBody = settlements.map((settlement) => [
+			{
 				type: "text",
-				value: paymentMethodAr,
-				style: { ...baseFont, fontSize: "10px" },
-			});
+				value: `${settlement.method}\n${getPaymentMethodArabic(
+					settlement.method
+				)}`,
+				style: {
+					textAlign: "left",
+					whiteSpace: "pre-line",
+					direction: "ltr",
+				},
+			},
+			{
+				type: "text",
+				value: parseFloat(settlement.amount).toFixed(2),
+				style: { textAlign: "right" },
+			},
+		]);
+
+		receipt.push({
+			type: "table",
+			style: { ...baseFont, fontSize: "10px" },
+			tableHeader: [],
+			tableBody: settlementTableBody,
+			tableFooter: [],
+			tableHeaderStyle: { backgroundColor: "#ffffffff", color: "black" },
+			tableBodyStyle: {},
+			tableFooterStyle: { backgroundColor: "#ffffffff", color: "black" },
+			tableHeaderCellStyle: { padding: "2px 2px" },
+			tableBodyCellStyle: { padding: "2px", textAlign: "left" },
+			tableFooterCellStyle: { padding: "5px 2px", fontWeight: "400" },
 		});
 	}
 
-	receipt.push({ type: "text", value: makeLine(), style: baseFont });
+	receipt.push({
+		type: "text",
+		value: makeLine(),
+		style: baseFont,
+	});
 
-	// ===== FOOTER =====
+	// ===== FOOTER SECTION =====
 	if (thankYouMessage) {
 		receipt.push({
 			type: "text",
@@ -369,7 +508,11 @@ export function generateGoCrispyInvoiceReceipt(data) {
 		receipt.push({
 			type: "text",
 			value: commentsLabel,
-			style: { ...baseFont, fontSize: "10px", marginTop: "10px" },
+			style: {
+				...baseFont,
+				fontSize: "10px",
+				marginTop: "10px",
+			},
 		});
 	}
 
@@ -377,11 +520,14 @@ export function generateGoCrispyInvoiceReceipt(data) {
 		receipt.push({
 			type: "text",
 			value: signLabel,
-			style: { ...baseFont, fontSize: "10px", marginTop: "5px" },
+			style: {
+				...baseFont,
+				fontSize: "10px",
+				marginTop: "5px",
+			},
 		});
 	}
 
-	// Closing message and timestamp
 	if (close) {
 		receipt.push({
 			type: "text",
@@ -396,7 +542,6 @@ export function generateGoCrispyInvoiceReceipt(data) {
 		});
 	}
 
-	// Current date/time at bottom
 	if (currentdate) {
 		receipt.push({
 			type: "text",
@@ -410,18 +555,9 @@ export function generateGoCrispyInvoiceReceipt(data) {
 		});
 	}
 
-	// ===== PRINTER COMMANDS =====
-	receipt.push({
-		type: "raw",
-		format: "hex",
-		value: "0A0A0A", // 3 line feeds
-	});
-
-	receipt.push({
-		type: "raw",
-		format: "hex",
-		value: "1D5601", // Cut paper command
-	});
+	// Printer control commands
+	receipt.push({ type: "raw", format: "hex", value: "0A0A0A" });
+	receipt.push({ type: "raw", format: "hex", value: "1D5601" });
 
 	return receipt;
 }

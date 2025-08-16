@@ -1,516 +1,454 @@
-// /**
-//  * Generates printData for a Kitchen Order Ticket with nested item support.
-//  * This format is optimized and corrected for @plick/electron-pos-printer.
-//  *
-//  * @param {object} data - The dynamic data for the ticket.
-//  * @param {string} [data.storeName="TW KITCHEN"]
-//  * @param {string} [data.fontFamily="Arial, sans-serif"] - The font family to use.
-//  * @param {Array<object>} [data.items] - Array of items with qty, name, notes, subItems
-//  * @returns {Array<object>} - Array of print command objects for @plick/electron-pos-printer.
-//  */
-// export function generateTwKitchenTakeawayTicket(data = {}) {
-// 	const plickCommands = [];
-// 	const paperCharWidth = 42;
-// 	const FONT_FAMILY = data.fontFamily || "Arial, sans-serif";
-
-// 	const d = (value, defaultValue = "") =>
-// 		value !== undefined && value !== null ? String(value) : defaultValue;
-
-// 	// --- Template Definition Start ---
-
-// 	plickCommands.push({
-// 		type: "text",
-// 		value: d(data.storeName, "TW KITCHEN"),
-// 		style: {
-// 			fontFamily: FONT_FAMILY,
-// 			fontWeight: "bold",
-// 			fontSize: "1.5em",
-// 			textAlign: "center",
-// 		},
-// 	});
-
-// 	plickCommands.push({
-// 		type: "text",
-// 		value: `*** ${d(data.orderType, "TAKEAWAY").toUpperCase()} ***`,
-// 		style: { fontFamily: FONT_FAMILY, fontWeight: "bold", textAlign: "center" },
-// 	});
-
-// 	if (data.customerName) {
-// 		plickCommands.push({
-// 			type: "text",
-// 			value: `Customer : ${d(data.customerName)}`,
-// 			style: { fontFamily: FONT_FAMILY },
-// 		});
-// 	}
-// 	if (data.customerMobile) {
-// 		plickCommands.push({
-// 			type: "text",
-// 			value: `Mobile No: ${d(data.customerMobile)}`,
-// 			style: { fontFamily: FONT_FAMILY },
-// 		});
-// 	}
-// 	if (data.deliveryTime) {
-// 		plickCommands.push({
-// 			type: "text",
-// 			value: `Delv Time: ${d(data.deliveryTime)}`,
-// 			style: { fontFamily: FONT_FAMILY },
-// 		});
-// 	}
-
-// 	plickCommands.push({ type: "divider" });
-
-// 	plickCommands.push({
-// 		type: "text",
-// 		value: `No# : ${d(data.orderNumber, "N/A")}`,
-// 		style: {
-// 			fontFamily: FONT_FAMILY,
-// 			fontWeight: "bold",
-// 			fontSize: "1.8em",
-// 			textAlign: "center",
-// 		},
-// 	});
-
-// 	plickCommands.push({ type: "divider" });
-
-// 	const orderDate = d(
-// 		data.orderDate,
-// 		new Date()
-// 			.toLocaleDateString("en-GB", {
-// 				day: "2-digit",
-// 				month: "short",
-// 				year: "numeric",
-// 			})
-// 			.replace(/ /g, "-")
-// 	);
-// 	const orderTime = d(
-// 		data.orderTime,
-// 		new Date().toLocaleTimeString("en-US", {
-// 			hour: "numeric",
-// 			minute: "2-digit",
-// 			hour12: true,
-// 		})
-// 	);
-// 	const paxInfo = data.pax
-// 		? `Pax : ${parseFloat(d(data.pax, 0)).toFixed(2)}`
-// 		: "";
-// 	const leftColDateTime = `Date : ${orderDate} ${orderTime}`;
-// 	const rightColPax = paxInfo;
-// 	const spaceCount = Math.max(
-// 		1,
-// 		paperCharWidth - leftColDateTime.length - rightColPax.length
-// 	);
-// 	plickCommands.push({
-// 		type: "text",
-// 		value: `${leftColDateTime}${" ".repeat(spaceCount)}${rightColPax}`,
-// 		style: { fontFamily: FONT_FAMILY },
-// 	});
-
-// 	if (data.followUpStatus) {
-// 		plickCommands.push({
-// 			type: "text",
-// 			value: `${data.followUpStatus}`,
-// 			style: {
-// 				fontFamily: FONT_FAMILY,
-// 				fontWeight: "bold",
-// 				textAlign: "center",
-// 			},
-// 		});
-// 	}
-
-// 	// ====================================================================
-// 	// PROPER TABLE FORMAT WITH COLUMN ALIGNMENT
-// 	// ====================================================================
-
-// 	// Create table header with proper column spacing
-// 	const qtyColWidth = 10; // Width for quantity column
-// 	const menuColWidth = paperCharWidth - qtyColWidth - 1; // Remaining width for menu
-
-// 	// Create a dashed line across full width
-// 	plickCommands.push({
-// 		type: "text",
-// 		value: "-".repeat(paperCharWidth),
-// 		style: { fontFamily: FONT_FAMILY },
-// 	});
-
-// 	// Table header with proper column alignment
-// 	const headerQty = "Qty".padEnd(qtyColWidth);
-// 	const headerMenu = "Menu";
-// 	plickCommands.push({
-// 		type: "text",
-// 		value: `${headerQty} ${headerMenu}`,
-// 		style: { fontFamily: FONT_FAMILY, fontWeight: "bold" },
-// 	});
-
-// 	// Another dashed line
-// 	plickCommands.push({
-// 		type: "text",
-// 		value: "-".repeat(paperCharWidth + 25),
-// 		style: { fontFamily: FONT_FAMILY },
-// 	});
-
-// 	// ADD-ON header
-// 	plickCommands.push({
-// 		type: "text",
-// 		value: "ADD-ON",
-// 		style: { fontFamily: FONT_FAMILY, fontWeight: "bold" },
-// 	});
-
-// 	// ====================================================================
-// 	// ITEMS LIST - PROPERLY FORMATTED COLUMNS
-// 	// ====================================================================
-
-// 	/**
-// 	 * Recursively prints items and their sub-items with proper column alignment
-// 	 * @param {object} item - The item object
-// 	 * @param {number} indentLevel - Current indentation level
-// 	 */
-// 	const printItemAndSubItems = (item, indentLevel = 0) => {
-// 		const indent = "  ".repeat(indentLevel);
-// 		const qtyStr = d(item.qty, "0").toString();
-// 		let itemName = d(item.name, "N/A ITEM").toUpperCase();
-
-// 		if (indentLevel > 0) {
-// 			// For sub-items, add the quantity in the qty column but indent the name
-// 			const qtyColumn = qtyStr.padEnd(qtyColWidth);
-// 			itemName = `${indent}- ${itemName}`;
-
-// 			plickCommands.push({
-// 				type: "text",
-// 				value: `${qtyColumn}  ${itemName}`,
-// 				style: {
-// 					fontFamily: FONT_FAMILY,
-// 					fontWeight: "normal",
-// 					fontSize: "1em",
-// 				},
-// 			});
-// 		} else {
-// 			// For main items, create proper column alignment
-// 			const qtyColumn = qtyStr.padEnd(qtyColWidth);
-
-// 			plickCommands.push({
-// 				type: "text",
-// 				value: `${qtyColumn} ${itemName}`,
-// 				style: {
-// 					fontFamily: FONT_FAMILY,
-// 					fontWeight: "bold",
-// 					fontSize: "1.2em",
-// 				},
-// 			});
-// 		}
-
-// 		// Add notes if present (aligned under the menu column)
-// 		if (item.notes) {
-// 			const emptyQtyCol = "".padEnd(qtyColWidth);
-// 			const noteIndent = indentLevel > 0 ? indent + "  " : "  ";
-// 			plickCommands.push({
-// 				type: "text",
-// 				value: `${emptyQtyCol} ${noteIndent}(${d(item.notes)})`,
-// 				style: { fontFamily: FONT_FAMILY, fontSize: "0.9em" },
-// 			});
-// 		}
-
-// 		// Add a dashed line after each main item (not sub-items)
-// 		if (indentLevel === 0) {
-// 			plickCommands.push({
-// 				type: "text",
-// 				value: "-".repeat(paperCharWidth + 25),
-// 				style: { fontFamily: FONT_FAMILY },
-// 			});
-// 		}
-
-// 		// Recursively print sub-items
-// 		if (item.subItems && item.subItems.length > 0) {
-// 			item.subItems.forEach((subItem) => {
-// 				printItemAndSubItems(subItem, indentLevel + 1);
-// 			});
-// 		}
-// 	};
-
-// 	// Process all items
-// 	if (data.items && data.items.length > 0) {
-// 		data.items.forEach((item) => printItemAndSubItems(item, 0));
-// 	}
-
-// 	// ====================================================================
-// 	// FOOTER SECTIONS
-// 	// ====================================================================
-
-// 	if (data.servedBy) {
-// 		plickCommands.push({
-// 			type: "text",
-// 			value: `Served By : ${d(data.servedBy)}`,
-// 			style: { fontFamily: FONT_FAMILY },
-// 		});
-// 	}
-
-// 	if (d(data.notes, "").trim() !== "") {
-// 		plickCommands.push({
-// 			type: "text",
-// 			value: "Notes :",
-// 			style: { fontFamily: FONT_FAMILY, fontWeight: "bold" },
-// 		});
-// 		plickCommands.push({
-// 			type: "text",
-// 			value: d(data.notes, ""),
-// 			style: { fontFamily: FONT_FAMILY, fontWeight: "bold", fontSize: "1.2em" },
-// 		});
-// 	}
-
-// 	// Final spacing and cut
-// 	plickCommands.push({
-// 		type: "text",
-// 		value: "=".repeat(paperCharWidth - 3),
-// 		style: { fontFamily: FONT_FAMILY },
-// 	});
-
-// 	// Add some spacing before cut
-// 	// plickCommands.push({ type: "text", value: " " });
-// 	// plickCommands.push({ type: "text", value: " " });
-// 	// plickCommands.push({ type: "text", value: " " });
-
-// 	return plickCommands;
-// }
-
 /**
- * Generates printData for a Kitchen Order Ticket with nested item support.
- * This format is optimized and corrected for @plick/electron-pos-printer,
- * using a table to perfectly align columns as shown in the provided image.
+ * Enhanced Kitchen Order Ticket Generator for Plick Electron Thermal Printer
+ * Optimized for thermal printing with improved structure and performance
  *
- * @param {object} data - The dynamic data for the ticket.
- * @param {string} [data.storeName="TW KITCHEN"]
- * @param {string} [data.fontFamily="Arial, sans-serif"]
- * @param {Array<object>} [data.items] - Array of items. A category can be added by including an object like { name: 'ADD-ON', isCategory: true }
- * @returns {Array<object>} - Array of print command objects for @plick/electron-pos-printer.
+ * @param {Object} data - The order data
+ * @param {string} [data.storeName] - Store name
+ * @param {string} [data.orderType] - Order type (TAKEAWAY, DINE-IN, etc.)
+ * @param {string} [data.customerName] - Customer name
+ * @param {string} [data.customerMobile] - Customer mobile number
+ * @param {string} [data.deliveryTime] - Delivery time
+ * @param {string} [data.orderNumber] - Order number
+ * @param {string} [data.orderDate] - Order date
+ * @param {string} [data.orderTime] - Order time
+ * @param {number} [data.pax] - Number of people
+ * @param {string} [data.followUpStatus] - Follow up status
+ * @param {Array} [data.items] - Order items array
+ * @param {string} [data.servedBy] - Server name
+ * @param {string} [data.notes] - Order notes
+ * @param {string} [data.fontFamily] - Font family for printing
+ * @returns {Array} Array of print command objects
  */
 export function generateTwKitchenTakeawayTicket(data = {}) {
-	const plickCommands = [];
-	const paperCharWidth = 42;
-	const FONT_FAMILY = data.fontFamily || "Arial, sans-serif";
-
-	const d = (value, defaultValue = "") =>
-		value !== undefined && value !== null ? String(value) : defaultValue;
-
-	// --- Template Header (No changes needed here) ---
-	plickCommands.push({
-		type: "text",
-		value: d(data.storeName, "TW KITCHEN"),
-		style: {
-			fontFamily: FONT_FAMILY,
-			fontWeight: "bold",
-			fontSize: "1.5em",
-			textAlign: "center",
+	// Configuration constants
+	const CONFIG = {
+		paperCharWidth: 42,
+		defaultFont: "Tahoma, Arial, sans-serif",
+		separator: "---------------------------------------------",
+		indentSize: 4,
+		thermalCommands: {
+			partialCut: "\x1d\x56\x01",
+			fullCut: "\x1d\x56\x00",
+			bold: "\x1b\x45\x01",
+			normal: "\x1b\x45\x00",
+			center: "\x1b\x61\x01",
+			left: "\x1b\x61\x00",
 		},
-	});
-	plickCommands.push({
-		type: "text",
-		value: `*** ${d(data.orderType, "TAKEAWAY").toUpperCase()} ***`,
-		style: { fontFamily: FONT_FAMILY, fontWeight: "bold", textAlign: "center" },
-	});
-	if (data.customerName)
-		plickCommands.push({
+	};
+
+	/**
+	 * Safe value extraction with defaults
+	 * @param {*} value - Value to extract
+	 * @param {string} defaultValue - Default value if null/undefined
+	 * @returns {string} Safe string value
+	 */
+	const safeValue = (value, defaultValue = "") => {
+		return value !== undefined && value !== null
+			? String(value).trim()
+			: defaultValue;
+	};
+
+	/**
+	 * Format date for thermal printer
+	 * @param {string} date - Input date
+	 * @returns {string} Formatted date
+	 */
+	const formatDate = (date) => {
+		if (!date) {
+			return new Date()
+				.toLocaleDateString("en-GB", {
+					day: "2-digit",
+					month: "short",
+					year: "numeric",
+				})
+				.replace(/ /g, "-");
+		}
+		return safeValue(date);
+	};
+
+	/**
+	 * Format time for thermal printer
+	 * @param {string} time - Input time
+	 * @returns {string} Formatted time
+	 */
+	const formatTime = (time) => {
+		if (!time) {
+			return new Date().toLocaleTimeString("en-US", {
+				hour: "numeric",
+				minute: "2-digit",
+				hour12: true,
+			});
+		}
+		return safeValue(time);
+	};
+
+	/**
+	 * Create a text command object
+	 * @param {string} value - Text value
+	 * @param {Object} style - Style object
+	 * @returns {Object} Text command
+	 */
+	const createTextCommand = (value, style = {}) => {
+		return {
 			type: "text",
-			value: `Customer : ${d(data.customerName)}`,
-			style: { fontFamily: FONT_FAMILY },
-		});
-	if (data.customerMobile)
-		plickCommands.push({
-			type: "text",
-			value: `Mobile No: ${d(data.customerMobile)}`,
-			style: { fontFamily: FONT_FAMILY },
-		});
-	if (data.deliveryTime)
-		plickCommands.push({
-			type: "text",
-			value: `Delv Time: ${d(data.deliveryTime)}`,
-			style: { fontFamily: FONT_FAMILY },
-		});
-	plickCommands.push({ type: "divider" });
-	plickCommands.push({
-		type: "text",
-		value: `No# : ${d(data.orderNumber, "N/A")}`,
-		style: {
-			fontFamily: FONT_FAMILY,
-			fontWeight: "bold",
-			fontSize: "1.8em",
-			textAlign: "center",
-		},
-	});
-	plickCommands.push({ type: "divider" });
-	const orderDate = d(
-		data.orderDate,
-		new Date()
-			.toLocaleDateString("en-GB", {
-				day: "2-digit",
-				month: "short",
-				year: "numeric",
-			})
-			.replace(/ /g, "-")
-	);
-	const orderTime = d(
-		data.orderTime,
-		new Date().toLocaleTimeString("en-US", {
-			hour: "numeric",
-			minute: "2-digit",
-			hour12: true,
-		})
-	);
-	const paxInfo = data.pax
-		? `Pax : ${parseFloat(d(data.pax, 0)).toFixed(2)}`
-		: "";
-	const leftColDateTime = `Date : ${orderDate} ${orderTime}`;
-	const rightColPax = paxInfo;
-	const spaceCount = Math.max(
-		1,
-		paperCharWidth - leftColDateTime.length - rightColPax.length
-	);
-	plickCommands.push({
-		type: "text",
-		value: `${leftColDateTime}${" ".repeat(spaceCount)}${rightColPax}`,
-		style: { fontFamily: FONT_FAMILY },
-	});
-	if (data.followUpStatus)
-		plickCommands.push({
-			type: "text",
-			value: `${data.followUpStatus}`,
+			value: safeValue(value),
 			style: {
-				fontFamily: FONT_FAMILY,
-				fontWeight: "bold",
-				textAlign: "center",
+				fontFamily: CONFIG.defaultFont,
+				...style,
 			},
+		};
+	};
+
+	/**
+	 * Create separator line
+	 * @returns {Object} Separator command
+	 */
+	const createSeparator = () => {
+		return createTextCommand(CONFIG.separator);
+	};
+
+	/**
+	 * Generate header section
+	 * @param {Object} data - Order data
+	 * @returns {Array} Header commands
+	 */
+	const generateHeader = (data) => {
+		const commands = [];
+		const fontFamily = safeValue(data.fontFamily, CONFIG.defaultFont);
+
+		// Store name
+		commands.push(
+			createTextCommand(safeValue(data.storeName, "TW KITCHEN"), {
+				fontFamily,
+				fontWeight: "bold",
+				fontSize: "14px",
+				textAlign: "center",
+			})
+		);
+
+		// Order type
+		commands.push(
+			createTextCommand(
+				`*** ${safeValue(data.orderType, "TAKEAWAY").toUpperCase()} ***`,
+				{
+					fontFamily,
+					fontWeight: "bold",
+					textAlign: "center",
+				}
+			)
+		);
+
+		// Customer info (only if provided)
+		const customerInfo = [
+			{ label: "Customer", value: data.customerName },
+			{ label: "Mobile No", value: data.customerMobile },
+			{ label: "Delv Time", value: data.deliveryTime },
+		];
+
+		customerInfo.forEach(({ label, value }) => {
+			if (value && safeValue(value).trim()) {
+				commands.push(
+					createTextCommand(`${label} : ${safeValue(value)}`, { fontFamily })
+				);
+			}
 		});
 
-	// ====================================================================
-	// >>>>>>>>>> TABLE-BASED ITEM LIST FOR PERFECT ALIGNMENT <<<<<<<<<<
-	// ====================================================================
+		return commands;
+	};
 
-	// Prepare the rows for the table body
-	const tableBodyRows = [];
+	/**
+	 * Generate order number section
+	 * @param {Object} data - Order data
+	 * @returns {Array} Order number commands
+	 */
+	const generateOrderNumber = (data) => {
+		const commands = [];
+		const fontFamily = safeValue(data.fontFamily, CONFIG.defaultFont);
 
+		commands.push({ type: "divider" });
+		commands.push(
+			createTextCommand(`No# : ${safeValue(data.orderNumber, "N/A")}`, {
+				fontFamily,
+				fontWeight: "bold",
+				fontSize: "16px",
+				textAlign: "center",
+			})
+		);
+		// commands.push(createSeparator());
+		commands.push({ type: "divider" });
+
+		return commands;
+	};
+
+	/**
+	 * Generate date/time and pax section
+	 * @param {Object} data - Order data
+	 * @returns {Array} DateTime commands
+	 */
+	const generateDateTime = (data) => {
+		const commands = [];
+		const fontFamily = safeValue(data.fontFamily, CONFIG.defaultFont);
+
+		const orderDate = formatDate(data.orderDate);
+		const orderTime = formatTime(data.orderTime);
+		const paxInfo = data.pax
+			? `Pax : ${parseFloat(safeValue(data.pax, 0)).toFixed(0)}`
+			: "";
+
+		const leftCol = `Date : ${orderDate} ${orderTime}`;
+		const rightCol = paxInfo;
+		const spaceCount = Math.max(
+			1,
+			CONFIG.paperCharWidth - leftCol.length - rightCol.length
+		);
+
+		commands.push(
+			createTextCommand(`${leftCol}${" ".repeat(spaceCount)}${rightCol}`, {
+				fontFamily,
+			})
+		);
+
+		// Follow-up status (if provided)
+		if (data.followUpStatus && safeValue(data.followUpStatus).trim()) {
+			commands.push(
+				createTextCommand(safeValue(data.followUpStatus), {
+					fontFamily,
+					fontWeight: "bold",
+					textAlign: "center",
+				})
+			);
+		}
+
+		return commands;
+	};
+
+	/**
+	 * Build table rows recursively for nested items
+	 * @param {Object} item - Order item
+	 * @param {number} indentLevel - Current indent level
+	 * @returns {Array} Table rows
+	 */
 	const buildTableRows = (item, indentLevel = 0) => {
-		// A category is an item with the 'isCategory' flag or just a name without a quantity
+		const rows = [];
 		const isCategory =
 			item.isCategory || (!item.hasOwnProperty("qty") && item.name);
 
 		if (isCategory) {
-			// Create a row for the category header that spans both columns.
-			tableBodyRows.push([
+			// Category header row
+			rows.push([
 				{
 					type: "text",
-					value: item.name.toUpperCase(),
+					value: safeValue(item.name).toUpperCase(),
+					style: {
+						fontWeight: "bold",
+						paddingTop: "4px",
+						textAlign: "left",
+					},
 					colspan: 2,
-					style: { fontWeight: "bold", paddingTop: "4px" },
 				},
 			]);
 		} else {
-			// This is a standard item.
-			const indent = " ".repeat(indentLevel * 4); // Use more spaces for clear indentation
+			// Regular item row
+			const indent = " ".repeat(indentLevel * CONFIG.indentSize);
 			const namePrefix = indentLevel > 0 ? `${indent}- ` : indent;
 
-			tableBodyRows.push([
+			rows.push([
 				{
-					// Cell 1: Quantity
 					type: "text",
-					value: d(item.qty, "0"),
+					value: safeValue(item.qty, "0"),
 					style: {
 						fontWeight: "bold",
-						fontSize: "1.5em",
-						verticalAlign: "middle",
+						fontSize: "14px",
+						textAlign: "left",
 					},
 				},
 				{
-					// Cell 2: Name
 					type: "text",
-					value: `${namePrefix}${d(item.name)}`,
-					style: { fontWeight: "bold", fontSize: "1.5em" },
+					value: `${namePrefix}${safeValue(item.name)}`,
+					style: {
+						fontWeight: "bold",
+						fontSize: "14px",
+						textAlign: "left",
+					},
 				},
 			]);
 
-			if (item.notes) {
-				tableBodyRows.push([
-					{ type: "text", value: "" }, // Empty cell in Qty column
+			// Item notes (if any)
+			if (item.notes && safeValue(item.notes).trim()) {
+				rows.push([
 					{
 						type: "text",
-						value: `${indent}  (${d(item.notes)})`,
-						style: { fontSize: "1em" },
+						value: "",
+						style: { textAlign: "left" },
+					},
+					{
+						type: "text",
+						value: `${indent}(${safeValue(item.notes)})`,
+						style: {
+							fontSize: "12px",
+							fontStyle: "italic",
+							textAlign: "left",
+						},
 					},
 				]);
 			}
 		}
 
-		// After every item or category, add a divider row that spans both columns.
-		tableBodyRows.push([{ type: "divider", colspan: 2 }]);
-
-		if (item.subItems && item.subItems.length > 0) {
-			item.subItems.forEach((subItem) =>
-				buildTableRows(subItem, indentLevel + 1)
-			);
+		// Process sub-items recursively
+		if (
+			item.subItems &&
+			Array.isArray(item.subItems) &&
+			item.subItems.length > 0
+		) {
+			item.subItems.forEach((subItem) => {
+				rows.push(...buildTableRows(subItem, indentLevel + 1));
+			});
 		}
+
+		return rows;
 	};
 
-	// Build the table body from the provided item data
-	if (data.items && data.items.length > 0) {
-		data.items.forEach((item) => buildTableRows(item, 0));
-
-		// Remove the very last divider for a cleaner look
-		if (tableBodyRows.length > 0) {
-			const lastRow = tableBodyRows[tableBodyRows.length - 1];
-			if (lastRow && lastRow[0] && lastRow[0].type === "divider") {
-				tableBodyRows.pop();
-			}
+	/**
+	 * Generate items table
+	 * @param {Object} data - Order data
+	 * @returns {Array} Table commands
+	 */
+	const generateItemsTable = (data) => {
+		if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+			return [];
 		}
-	}
 
-	// Create and add the single table object to the print commands
-	plickCommands.push({
-		type: "table",
-		tableHeader: [
-			{ type: "text", value: "Qty" },
-			{ type: "text", value: "Menu" },
-		],
-		tableBody: tableBodyRows,
-		// Define the styles for the table for a professional appearance
-		tableHeaderStyle: {
-			fontWeight: "bold",
-			borderBottom: "1px dashed #000",
-		},
-		tableBodyCellStyle: {
-			padding: "2px 0", // Add vertical padding to each cell
-		},
-		columnStyles: ["15%", "85%"], // Define column widths: 15% for Qty, 85% for Menu
-	});
+		const fontFamily = safeValue(data.fontFamily, CONFIG.defaultFont);
+		const tableBody = [];
 
-	// ====================================================================
-	// --- Footer Section and Final Cut (No Changes) ---
-	// ====================================================================
-	if (data.servedBy) {
-		plickCommands.push({
-			type: "text",
-			value: `Served By : ${d(data.servedBy)}`,
-			style: { fontFamily: FONT_FAMILY, paddingTop: "5px" },
+		// Process all items
+		data.items.forEach((item) => {
+			tableBody.push(...buildTableRows(item));
 		});
-	}
-	if (d(data.notes).trim() !== "") {
-		plickCommands.push({ type: "divider" });
-		plickCommands.push({
-			type: "text",
-			value: "Notes :",
-			style: { fontFamily: FONT_FAMILY, fontWeight: "bold" },
-		});
-		plickCommands.push({
-			type: "text",
-			value: d(data.notes),
-			style: { fontFamily: FONT_FAMILY, fontWeight: "bold", fontSize: "1.2em" },
-		});
-	}
-	plickCommands.push({ type: "divider" });
-	// Buffer flush to ensure the cut command works
-	plickCommands.push({
-		type: "text",
-		value: ".",
-		style: { textAlign: "center" },
-	});
-	// Raw ESC/POS command for a partial cut
-	plickCommands.push({ type: "text", value: "\x1d\x56\x01" });
 
-	return plickCommands;
+		if (tableBody.length === 0) {
+			return [];
+		}
+
+		return [
+			{
+				type: "table",
+				style: {
+					fontFamily,
+					fontSize: "12px",
+				},
+				tableHeader: [
+					{
+						type: "text",
+						value: "Qty",
+						style: { textAlign: "left", fontWeight: "bold" },
+					},
+					{
+						type: "text",
+						value: "Menu",
+						style: { textAlign: "left", fontWeight: "bold" },
+					},
+				],
+				tableBody,
+				tableFooter: [],
+				tableHeaderStyle: {
+					backgroundColor: "#ffffff",
+					color: "#000000",
+				},
+				tableBodyStyle: {},
+				tableFooterStyle: {
+					backgroundColor: "#ffffff",
+					color: "#000000",
+				},
+				tableHeaderCellStyle: {
+					padding: "2px 2px",
+					borderBottom: "1px solid #ccc",
+				},
+				tableBodyCellStyle: {
+					padding: "4px 2px",
+				},
+				tableFooterCellStyle: {
+					padding: "5px 2px",
+					fontWeight: "400",
+				},
+			},
+		];
+	};
+
+	/**
+	 * Generate footer section
+	 * @param {Object} data - Order data
+	 * @returns {Array} Footer commands
+	 */
+	const generateFooter = (data) => {
+		const commands = [];
+		const fontFamily = safeValue(data.fontFamily, CONFIG.defaultFont);
+
+		// Served by information
+		if (data.servedBy && safeValue(data.servedBy).trim()) {
+			commands.push(
+				createTextCommand(`Served By : ${safeValue(data.servedBy)}`, {
+					fontFamily,
+					marginTop: "5px",
+				})
+			);
+		}
+
+		// Order notes
+		const notes = safeValue(data.notes).trim();
+		if (notes) {
+			// commands.push(createSeparator());
+			commands.push({ type: "divider" });
+			commands.push(
+				createTextCommand("Notes :", {
+					fontFamily,
+					fontWeight: "bold",
+				})
+			);
+			commands.push(
+				createTextCommand(notes, {
+					fontFamily,
+					fontWeight: "bold",
+					fontSize: "14px",
+				})
+			);
+		}
+
+		// Final separator and cut command
+		// commands.push(createSeparator());
+		commands.push({ type: "divider" });
+		commands.push(
+			createTextCommand("", { textAlign: "center", marginBottom: "4px" })
+		);
+		// commands.push({
+		// 	type: "text",
+		// 	value: CONFIG.thermalCommands.partialCut,
+		// });
+
+		return commands;
+	};
+
+	// Main function logic - Generate complete kitchen ticket
+	try {
+		const receipt = [
+			...generateHeader(data),
+			...generateOrderNumber(data),
+			...generateDateTime(data),
+			...generateItemsTable(data),
+			...generateFooter(data),
+		];
+
+		return receipt;
+	} catch (error) {
+		console.error("Error generating kitchen ticket:", error);
+		return [
+			{
+				type: "text",
+				value: "Error generating ticket",
+				style: { textAlign: "center", color: "red" },
+			},
+		];
+	}
 }
+
+export default generateTwKitchenTakeawayTicket;
