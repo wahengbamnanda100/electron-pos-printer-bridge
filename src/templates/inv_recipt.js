@@ -1,133 +1,297 @@
-function generateGoCrispyInvoiceReceipt(invoiceData) {
+export function generateGoCrispyInvoiceReceipt(data) {
 	const {
-		customerName,
-		customerPhone,
-		customerAddress,
-		items,
-		totalAmount,
-		discount,
-		tax,
-		settlementType,
 		storeName,
-		storeAddress,
-		storePhone,
-		storeVAT,
-		invoiceNumber,
 		orderType,
-		arabicTitle,
-		createdAt,
-	} = invoiceData;
+		invoiceDate,
+		invoiceTime,
+		billNo,
+		pax,
+		kotNo,
+		staffName,
+		customerName,
+		customerMobile,
+		items,
+		grossAmount,
+		discountAmountTotal,
+		deliveryCharge,
+		netAmount,
+		paidAmount,
+		balanceAmount,
+		settlements,
+		commentsLabel,
+		signLabel,
+		thankYouMessage,
+		close,
+	} = data;
 
-	// Helper to print centered text
-	const centerText = (text, options = {}) => ({
-		type: "text",
-		value: text,
-		style: {
-			fontFamily: "Tahoma",
-			fontWeight: "700",
-			textAlign: "center",
-			...options,
-		},
-	});
-
-	// Helper to print left/right aligned key-value lines
-	const keyValueLine = (key, value, options = {}) => ({
-		type: "text",
-		value: `${key}  ${value}`,
-		style: {
-			fontFamily: "Tahoma",
-			fontWeight: "400",
-			textAlign: "left",
-			...options,
-		},
-	});
-
-	// Recursive function to print items and sub-items
-	const printItems = (items, indent = 0) => {
-		const lines = [];
-		items.forEach((item) => {
-			lines.push({
-				type: "text",
-				value: `${" ".repeat(indent * 2)}${item.qty} x ${
-					item.name
-				}  ${item.total.toFixed(2)}`,
-				style: { fontFamily: "Tahoma", textAlign: "left" },
-			});
-			if (item.subItems && item.subItems.length > 0) {
-				lines.push(...printItems(item.subItems, indent + 1));
-			}
-		});
-		return lines;
+	const CHAR_WIDTH = 61;
+	const baseFont = {
+		fontFamily: "Tahoma, Arial, sans-serif",
+		fontSize: "12px",
 	};
+	const makeLine = (char = "-") => char.repeat(CHAR_WIDTH);
 
 	const receipt = [];
 
-	// Store Logo
-	receipt.push({
-		type: "image",
-		path: "logo.png", // Adjust to your logo path
-		position: "center",
-		width: 200,
-		height: 80,
-	});
-
-	// Store Info
-	receipt.push(centerText(storeName, { fontSize: "20px" }));
-	if (arabicTitle) receipt.push(centerText(arabicTitle, { fontSize: "20px" }));
-	receipt.push(centerText(storeAddress));
-	receipt.push(centerText(`Tel: ${storePhone}`));
-	if (storeVAT) receipt.push(centerText(`VAT: ${storeVAT}`));
+	// ===== Header =====
 	receipt.push({
 		type: "text",
-		value: "----------------------------------------",
+		value: storeName,
+		style: {
+			...baseFont,
+			fontWeight: "700",
+			fontSize: "14px",
+			textAlign: "center",
+		},
 	});
+	if (orderType) {
+		receipt.push({
+			type: "text",
+			value: orderType,
+			style: { ...baseFont, textAlign: "center" },
+		});
+	}
+	receipt.push({ type: "text", value: makeLine(), style: baseFont });
 
-	// Invoice Info
-	receipt.push(keyValueLine("Invoice:", invoiceNumber));
-	receipt.push(keyValueLine("Date:", createdAt));
-	receipt.push(keyValueLine("Order Type:", orderType));
 	receipt.push({
 		type: "text",
-		value: "----------------------------------------",
+		value: `Date: ${invoiceDate}   Time: ${invoiceTime}`,
+		style: baseFont,
 	});
+	receipt.push({ type: "text", value: `Bill No: ${billNo}`, style: baseFont });
+	if (pax)
+		receipt.push({ type: "text", value: `Pax: ${pax}`, style: baseFont });
+	if (kotNo)
+		receipt.push({ type: "text", value: `KOT No: ${kotNo}`, style: baseFont });
+	if (staffName)
+		receipt.push({
+			type: "text",
+			value: `Staff: ${staffName}`,
+			style: baseFont,
+		});
 
-	// Customer Info
-	receipt.push(keyValueLine("Customer:", customerName || ""));
-	if (customerPhone) receipt.push(keyValueLine("Phone:", customerPhone));
-	if (customerAddress) receipt.push(keyValueLine("Address:", customerAddress));
+	receipt.push({ type: "text", value: makeLine(), style: baseFont });
+
+	if (customerName)
+		receipt.push({
+			type: "text",
+			value: `Customer: ${customerName}`,
+			style: baseFont,
+		});
+	if (customerMobile)
+		receipt.push({
+			type: "text",
+			value: `Mobile: ${customerMobile}`,
+			style: baseFont,
+		});
+
+	receipt.push({ type: "text", value: makeLine(), style: baseFont });
+
+	// ===== Items Table =====
+	const tableBody = items.map((item) => [
+		{
+			type: "text",
+			value: item.name + (item.nameAr ? `\n${item.nameAr}` : ""),
+			style: {
+				textAlign: "left",
+				whiteSpace: "pre-line",
+			},
+		},
+		{
+			type: "text",
+			value: item.qty || "",
+			style: { textAlign: "right" },
+		},
+		{
+			type: "text",
+			value: `${item.amount || "0.00"}`,
+			style: { textAlign: "right" },
+		},
+	]);
+
 	receipt.push({
-		type: "text",
-		value: "----------------------------------------",
+		type: "table",
+		style: { fontFamily: "Tahoma, Arial, sans-serif", fontSize: "12px" },
+		tableHeader: [
+			{ type: "text", value: "Menu", style: { textAlign: "left" } },
+			{ type: "text", value: "Qty", style: { textAlign: "right" } },
+			{ type: "text", value: "Amount(QAR)", style: { textAlign: "right" } },
+		],
+		tableBody,
+		tableFooter: [],
+		tableHeaderStyle: { backgroundColor: "#ffffffff", color: "black" },
+		tableBodyStyle: {},
+		tableFooterStyle: { backgroundColor: "#ffffffff", color: "black" },
+		tableHeaderCellStyle: { padding: "2px 2px" },
+		tableBodyCellStyle: { padding: "4px 2px" },
+		tableFooterCellStyle: { padding: "5px 2px", fontWeight: "400" },
 	});
 
-	// Items
-	receipt.push(...printItems(items));
+	receipt.push({ type: "text", value: makeLine(), style: baseFont });
+
+	// ===== Amount Section =====
+	const amountTableBody = [
+		[
+			{
+				type: "text",
+				value: "Gross Amount :",
+				style: { textAlign: "right", fontWeight: "bold" },
+			},
+			{
+				type: "text",
+				value: `${grossAmount}`,
+				style: { textAlign: "right", fontWeight: "bold" },
+			},
+		],
+		[
+			{
+				type: "text",
+				value: "Discount :",
+				style: { textAlign: "right", fontWeight: "bold" },
+			},
+			{
+				type: "text",
+				value: `${discountAmountTotal}`,
+				style: { textAlign: "right", fontWeight: "bold" },
+			},
+		],
+
+		[
+			{
+				type: "text",
+				value: "Balance :",
+				style: { textAlign: "right", fontWeight: "bold" },
+			},
+			{
+				type: "text",
+				value: `${balanceAmount}`,
+				style: { textAlign: "right", fontWeight: "bold" },
+			},
+		],
+		[
+			{
+				type: "text",
+				value: "Delivery Charge :",
+				style: { textAlign: "right", fontWeight: "bold" },
+			},
+			{
+				type: "text",
+				value: `${deliveryCharge}`,
+				style: { textAlign: "right", fontWeight: "bold" },
+			},
+		],
+		[
+			{
+				type: "text",
+				value: "Net Amount :",
+				style: { textAlign: "right", fontWeight: "bold" },
+			},
+			{
+				type: "text",
+				value: `${netAmount}`,
+				style: { textAlign: "right", fontWeight: "bold" },
+			},
+		],
+	];
+
 	receipt.push({
-		type: "text",
-		value: "----------------------------------------",
+		type: "table",
+		style: { fontFamily: "Tahoma, Arial, sans-serif", fontSize: "12px" },
+		tableHeader: [],
+		tableBody: amountTableBody,
+		tableFooter: [
+			[
+				{
+					type: "text",
+					value: "Paid Amount :",
+					style: { textAlign: "right", fontWeight: "bold" },
+				},
+				{
+					type: "text",
+					value: `${paidAmount}`,
+					style: { textAlign: "right", fontWeight: "bold" },
+				},
+			],
+		],
+		tableHeaderStyle: { backgroundColor: "#ffffffff", color: "black" },
+		tableBodyStyle: {},
+		tableFooterStyle: {
+			backgroundColor: "#ffffffff",
+			borderTop: "1px solid black",
+			color: "black",
+		},
+		tableHeaderCellStyle: { padding: "2px 2px" },
+		tableBodyCellStyle: { padding: "4px 2px" },
+		tableFooterCellStyle: { padding: "5px 2px", fontWeight: "400" },
 	});
 
-	// Totals
-	receipt.push(keyValueLine("Total Amount:", totalAmount.toFixed(2)));
-	if (discount) receipt.push(keyValueLine("Discount:", discount.toFixed(2)));
-	if (tax) receipt.push(keyValueLine("Tax:", tax.toFixed(2)));
+	receipt.push({ type: "text", value: makeLine(), style: baseFont });
 
-	// Final Total
-	const grandTotal = totalAmount - (discount || 0) + (tax || 0);
-	receipt.push(
-		keyValueLine("Grand Total:", grandTotal.toFixed(2), { fontWeight: "700" })
-	);
-	receipt.push({
-		type: "text",
-		value: "----------------------------------------",
-	});
+	// ===== Settlements Table =====
+	if (settlements?.length) {
+		receipt.push({
+			type: "text",
+			value: "SETTLEMENT DETAILS / تفاصيل التسوية",
+			style: {
+				...baseFont,
+				fontWeight: "bold",
+				textAlign: "center",
+				padding: "3px",
+			},
+		});
 
-	// Settlement
-	receipt.push(keyValueLine("Settlement:", settlementType));
+		const settlementsTableBody = settlements.map((s) => [
+			{ type: "text", value: `${s.method}`, style: { textAlign: "left" } },
+			{ type: "text", value: `:`, style: { textAlign: "left" } },
+			{ type: "text", value: `${s.amount}`, style: { textAlign: "right" } },
+		]);
 
-	// Footer
-	receipt.push(centerText("Thank you for your order!", { fontSize: "14px" }));
-	receipt.push(centerText("شكرا لطلبك", { fontSize: "14px" }));
+		receipt.push({
+			type: "table",
+			style: { fontFamily: "Tahoma, Arial, sans-serif", fontSize: "12px" },
+			tableHeader: [],
+			tableBody: settlementsTableBody,
+			tableFooter: [],
+			tableHeaderStyle: { backgroundColor: "#ffffffff", color: "black" },
+			tableBodyStyle: {},
+			tableFooterStyle: { backgroundColor: "#ffffffff", color: "black" },
+			tableHeaderCellStyle: { padding: "2px 2px" },
+			tableBodyCellStyle: { padding: "4px 2px" },
+			tableFooterCellStyle: { padding: "5px 2px", fontWeight: "400" },
+		});
+	}
+
+	// ===== Footer =====
+	receipt.push({ type: "text", value: makeLine(), style: baseFont });
+
+	if (thankYouMessage)
+		receipt.push({
+			type: "text",
+			value: thankYouMessage,
+			style: { ...baseFont, textAlign: "center", padding: "3px" },
+		});
+
+	// ===== Footer =====
+	if (commentsLabel)
+		receipt.push({
+			type: "text",
+			value: commentsLabel,
+			style: { ...baseFont, marginBottom: "4px", padding: "6px" },
+		});
+
+	if (signLabel)
+		receipt.push({
+			type: "text",
+			value: signLabel,
+			style: { ...baseFont, padding: "4px" },
+		});
+
+	if (close)
+		receipt.push({
+			type: "text",
+			value: close,
+			style: { ...baseFont, textAlign: "center" },
+		});
 
 	return receipt;
 }
