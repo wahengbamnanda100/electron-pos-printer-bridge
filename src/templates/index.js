@@ -1,6 +1,6 @@
 import { generateTwKitchenTakeawayTicket } from "./kot_save_recipt.js";
 import { generateChelokababTakeawayReceipt } from "./template_2.js";
-import { generateGoCrispyInvoiceReceipt } from "./invoice_logo.js";
+import { generateGoCrispyInvoiceReceipt } from "./inv_recipt.js";
 import { generateTwKitchenTakeawayTicketHtml } from "./kot_save_html.js";
 // Import other template generators here
 
