@@ -1,10 +1,13 @@
 # POS Print Bridge (Electron)
 
-A comprehensive Electron-based printing bridge application that enables POS (Point of Sale) systems to communicate with various types of printers including thermal printers, network printers, and virtual printers.
+A comprehensive Electron-based printing bridge application that enables POS
+(Point of Sale) systems to communicate with various types of printers including
+thermal printers, network printers, and virtual printers.
 
 ## 🏗️ Architecture Overview
 
-This application follows a multi-process Electron architecture with clear separation of concerns:
+This application follows a multi-process Electron architecture with clear
+separation of concerns:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -66,12 +69,14 @@ sequenceDiagram
 The application discovers printers through multiple methods:
 
 #### OS Printer Discovery (Electron Native)
+
 ```javascript
 // Uses Electron's webContents.getPrintersAsync()
 webContents.getPrintersAsync() → OS Printers List
 ```
 
 #### Network Printer Discovery (mDNS/Bonjour)
+
 ```javascript
 // Scans for network services
 bonjourService.find({type: 'ipp'}) → Network Printers
@@ -79,6 +84,7 @@ bonjourService.find({type: 'pdl-datastream'}) → Raw TCP Printers
 ```
 
 #### Printer Classification Logic
+
 ```
 Discovered Printer → Classification Engine → Printer Types:
 ├── VIRTUAL (PDF, XPS, OneNote)
@@ -102,7 +108,7 @@ sequenceDiagram
     API->>Template: Generate print commands
     Template->>API: Return command array
     API->>Printer: Route to appropriate printer service
-    
+
     alt Virtual Printer
         Printer->>Device: Electron webContents.print()
     else Physical Printer (Plick)
@@ -110,7 +116,7 @@ sequenceDiagram
     else Network Printer (NTP)
         Printer->>Device: node-thermal-printer (TCP)
     end
-    
+
     Device->>Printer: Print result
     Printer->>API: Success/Error response
     API->>POS: JSON response
@@ -119,95 +125,117 @@ sequenceDiagram
 ## 🔧 Core Components
 
 ### Main Process (`src/electron-main.js`)
+
 **Responsibilities:**
+
 - Window lifecycle management
 - Printer discovery coordination
 - API server initialization
 - IPC communication handling
 
 **Key Functions:**
+
 - `performFullDiscoveryAndTest()`: Orchestrates printer discovery
 - `createWindow()`: Creates and manages the main application window
 - `updateRendererStatus()`: Sends status updates to UI
 
 ### Printer Discovery (`src/print-discovery.js`)
+
 **Responsibilities:**
+
 - OS printer enumeration via Electron
 - Network printer discovery via mDNS/Bonjour
 - Printer connection testing
 - Printer classification and status management
 
 **Discovery Methods:**
+
 1. **OS Discovery**: Uses `webContents.getPrintersAsync()`
-2. **Network Discovery**: Scans for IPP, PDL-datastream, and other print services
-3. **Connection Testing**: Validates printer connectivity using appropriate protocols
+2. **Network Discovery**: Scans for IPP, PDL-datastream, and other print
+   services
+3. **Connection Testing**: Validates printer connectivity using appropriate
+   protocols
 
 ### API Server (`src/api/server.js`)
+
 **Responsibilities:**
+
 - RESTful API endpoint management
 - Request routing and validation
 - Print job processing coordination
 
 **Endpoints:**
+
 - `GET /api/printers`: List all discovered printers
 - `POST /api/print`: Process print jobs with templates
 - `POST /api/print-pdf`: Handle PDF printing
 - `GET /api/health`: Health check endpoint
 
 ### Template System (`src/templates/`)
+
 **Responsibilities:**
+
 - Convert business data into print commands
 - Support multiple receipt/ticket formats
 - Generate printer-specific command sequences
 
 **Template Types:**
+
 - Kitchen Order Tickets (KOT)
 - Sales Receipts
 - Invoice Formats
 - Custom Templates
 
 ### Print Services
+
 **Multiple printing pathways:**
 
 1. **Virtual Printing**: Uses Electron's native print API
 2. **Plick EPP**: Uses `@plick/electron-pos-printer` for OS-registered printers
-3. **Thermal Printing**: Uses `node-thermal-printer` for direct network/USB communication
+3. **Thermal Printing**: Uses `node-thermal-printer` for direct network/USB
+   communication
 
 ## 🖨️ Printer Types & Connection Methods
 
 ### Virtual Printers
+
 - **Examples**: PDF writers, XPS Document Writer, OneNote
 - **Method**: Electron `webContents.print()`
 - **Use Case**: Document generation, testing
 
 ### OS-Registered Physical Printers (OS_PLICK)
+
 - **Examples**: Installed thermal printers, network printers with drivers
 - **Method**: `@plick/electron-pos-printer`
 - **Advantages**: Uses OS print spooler, supports all OS printer features
 
 ### Network Printers (MDNS_LAN)
+
 - **Examples**: Ethernet/WiFi thermal printers, IPP printers
 - **Discovery**: mDNS/Bonjour service discovery
 - **Method**: Direct TCP/IP communication or OS drivers
 
 ### USB Printers (RAW_USB)
+
 - **Examples**: Direct USB thermal printers
 - **Method**: Direct USB communication (future implementation)
 
 ## 🔄 Process Communication
 
 ### IPC (Inter-Process Communication)
+
 ```javascript
 // Main → Renderer
-mainWindow.webContents.send('printers-updated', printers);
-mainWindow.webContents.send('printer-status-update', message);
+mainWindow.webContents.send("printers-updated", printers);
+mainWindow.webContents.send("printer-status-update", message);
 
 // Renderer → Main
-ipcRenderer.send('renderer-ready');
-ipcRenderer.invoke('rediscover-printers');
+ipcRenderer.send("renderer-ready");
+ipcRenderer.invoke("rediscover-printers");
 ```
 
 ### API Communication
+
 ```javascript
 // External → API Server
 POST /api/print
@@ -247,11 +275,13 @@ POST /api/print
 ## 🚀 Getting Started
 
 ### Prerequisites
+
 - Node.js (v16 or higher)
 - Python (for native module compilation)
 - Windows/macOS/Linux
 
 ### Installation
+
 ```bash
 # Install dependencies
 npm install
@@ -264,6 +294,7 @@ npm run dist
 ```
 
 ### Environment Variables
+
 ```bash
 API_PORT=3030  # API server port (default: 3030)
 ```
@@ -271,11 +302,13 @@ API_PORT=3030  # API server port (default: 3030)
 ## 🔌 API Usage
 
 ### Get Available Printers
+
 ```bash
 curl http://localhost:3030/api/printers
 ```
 
 ### Send Print Job
+
 ```bash
 curl -X POST http://localhost:3030/api/print \
   -H "Content-Type: application/json" \
@@ -294,6 +327,7 @@ curl -X POST http://localhost:3030/api/print \
 ## 🔧 Configuration
 
 ### Printer Options
+
 ```javascript
 {
   "silent": true,           // Print without dialog
@@ -304,16 +338,18 @@ curl -X POST http://localhost:3030/api/print \
 ```
 
 ### Template Configuration
-Templates are JavaScript functions that convert business data into print command arrays:
+
+Templates are JavaScript functions that convert business data into print command
+arrays:
 
 ```javascript
 export function generateReceipt(data) {
-  return [
-    { type: "println", content: "RECEIPT", align: "CT", style: "B" },
-    { type: "println", content: `Order: ${data.orderNumber}` },
-    { type: "feed", lines: 2 },
-    { type: "cut" }
-  ];
+	return [
+		{ type: "println", content: "RECEIPT", align: "CT", style: "B" },
+		{ type: "println", content: `Order: ${data.orderNumber}` },
+		{ type: "feed", lines: 2 },
+		{ type: "cut" },
+	];
 }
 ```
 
@@ -322,11 +358,13 @@ export function generateReceipt(data) {
 ### Common Issues
 
 1. **Printer Not Found**
+
    - Ensure printer is installed in OS
    - Check network connectivity for network printers
    - Verify printer is powered on
 
 2. **Print Job Fails**
+
    - Check printer status in OS
    - Verify template data format
    - Check API server logs
@@ -337,7 +375,9 @@ export function generateReceipt(data) {
    - Check Node.js permissions
 
 ### Debug Mode
+
 Enable detailed logging by setting environment variables:
+
 ```bash
 DEBUG=* npm run dev
 ```
@@ -345,11 +385,13 @@ DEBUG=* npm run dev
 ## 📝 Development
 
 ### Adding New Templates
+
 1. Create template function in `src/templates/`
 2. Export function in `src/templates/index.js`
 3. Register in template generators map
 
 ### Adding New Printer Types
+
 1. Implement discovery logic in `src/print-discovery.js`
 2. Add print handling in API routes
 3. Update printer classification logic
@@ -367,4 +409,5 @@ DEBUG=* npm run dev
 
 ## 🤝 Contributing
 
-This is a proprietary application. For support or feature requests, contact the development team.
+This is a proprietary application. For support or feature requests, contact the
+development team.
