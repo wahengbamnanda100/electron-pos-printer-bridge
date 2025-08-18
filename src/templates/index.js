@@ -2,11 +2,13 @@ import { generateTwKitchenTakeawayTicket } from "./kot_save_recipt.js";
 import { generateChelokababTakeawayReceipt } from "./template_2.js";
 import { generateGoCrispyInvoiceReceipt } from "./inv_recipt.js";
 import { generateTwKitchenTakeawayTicketHtml } from "./kot_save_html.js";
+import { genarateDispatchRecipt } from "./disptachRecipt.js";
 // Import other template generators here
 
 export const templateGenerators = {
 	KOT_SAVE: generateTwKitchenTakeawayTicket,
-	TEMP_2: generateChelokababTakeawayReceipt,
+	// TEMP_2: generateChelokababTakeawayReceipt,
+	DISPATCH: genarateDispatchRecipt,
 	INV: generateGoCrispyInvoiceReceipt,
 	SAMPLE_KOT: generateGoCrispyInvoiceReceipt,
 	KOT_SAVE_HTML: generateTwKitchenTakeawayTicketHtml,
