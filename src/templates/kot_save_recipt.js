@@ -107,6 +107,12 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 		return createTextCommand(CONFIG.separator);
 	};
 
+	const getLastNChars = (str, n) => {
+		if (typeof str !== "string") return "";
+		if (n <= 0) return "";
+		return str.slice(-n);
+	};
+
 	/**
 	 * Generate header section
 	 * @param {Object} data - Order data
@@ -138,19 +144,27 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 			)
 		);
 
+		commands.push(
+			createTextCommand(getLastNChars(data.orderNumber, 5), {
+				fontFamily,
+				fontWeight: "bold",
+				fontSize: "16px",
+				textAlign: "center",
+			})
+		);
+
 		// Customer info (only if provided)
 		const customerInfo = [
 			{ label: "Customer", value: data.customerName },
+			{ label: "Invoice Type", value: data.orderType },
 			{ label: "Mobile No", value: data.customerMobile },
-			{ label: "Delv Time", value: data.deliveryTime },
+			{ label: "Delivery Time", value: data.deliveryTime },
 		];
 
 		customerInfo.forEach(({ label, value }) => {
-			if (value && safeValue(value).trim()) {
-				commands.push(
-					createTextCommand(`${label} : ${safeValue(value)}`, { fontFamily })
-				);
-			}
+			commands.push(
+				createTextCommand(`${label} : ${safeValue(value)}`, { fontFamily })
+			);
 		});
 
 		return commands;
@@ -228,7 +242,7 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 	 * @param {number} indentLevel - Current indent level
 	 * @returns {Array} Table rows
 	 */
-	const buildTableRows = (item, indentLevel = 0) => {
+	const buildTableRows = (item, indentLevel = 0, subItem = false) => {
 		const rows = [];
 		const isCategory =
 			item.isCategory || (!item.hasOwnProperty("qty") && item.name);
@@ -240,7 +254,7 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 					type: "text",
 					value: safeValue(item.name).toUpperCase(),
 					style: {
-						fontWeight: "bold",
+						fontWeight: subItem ? "light" : "bold",
 						paddingTop: "4px",
 						textAlign: "left",
 					},
@@ -301,7 +315,7 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 			item.subItems.length > 0
 		) {
 			item.subItems.forEach((subItem) => {
-				rows.push(...buildTableRows(subItem, indentLevel + 1));
+				rows.push(...buildTableRows(subItem, indentLevel + 1, true));
 			});
 		}
 
@@ -366,10 +380,11 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 				},
 				tableBodyCellStyle: {
 					padding: "4px 2px",
+					borderBottom: "1px dash black",
 				},
 				tableFooterCellStyle: {
-					padding: "5px 2px",
-					fontWeight: "400",
+					// padding: "5px 2px",
+					// fontWeight: "400",
 				},
 			},
 		];
@@ -389,6 +404,7 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 			commands.push(
 				createTextCommand(`Served By : ${safeValue(data.servedBy)}`, {
 					fontFamily,
+					fontWeight: "bold",
 					marginTop: "5px",
 				})
 			);
@@ -396,30 +412,33 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 
 		// Order notes
 		const notes = safeValue(data.notes).trim();
-		if (notes) {
-			// commands.push(createSeparator());
-			commands.push({ type: "divider" });
-			commands.push(
-				createTextCommand("Notes :", {
-					fontFamily,
-					fontWeight: "bold",
-				})
-			);
-			commands.push(
-				createTextCommand(notes, {
-					fontFamily,
-					fontWeight: "bold",
-					fontSize: "14px",
-				})
-			);
-		}
-
-		// Final separator and cut command
+		// if (notes) {
 		// commands.push(createSeparator());
 		commands.push({ type: "divider" });
 		commands.push(
-			createTextCommand("", { textAlign: "center", marginBottom: "4px" })
+			createTextCommand("Notes :", {
+				fontFamily,
+				fontWeight: "bold",
+			})
 		);
+		commands.push(
+			createTextCommand(notes, {
+				fontFamily,
+				fontWeight: "bold",
+				fontSize: "14px",
+				width: "100%",
+				wordWrap: "break-word",
+				whiteSpace: "normal",
+			})
+		);
+		// }
+
+		// Final separator and cut command
+		// commands.push(createSeparator());
+		commands.push({ type: "divider", style: { marginBottom: "4px" } });
+		// commands.push(
+		// 	createTextCommand("", { textAlign: "center", marginBottom: "4px" })
+		// );
 		// commands.push({
 		// 	type: "text",
 		// 	value: CONFIG.thermalCommands.partialCut,
