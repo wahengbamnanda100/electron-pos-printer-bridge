@@ -337,233 +337,350 @@ curl -X POST http://localhost:3030/api/print \
 }
 ```
 
-### Template Configuration
+## 🔧 Template Configuration
 
-Templates are modular functions that transform business data into structured print command arrays compatible with the `@plick/electron-pos-printer` package. Each template returns an array of command objects that the Plick thermal printer engine processes sequentially.
+Templates are modular JavaScript functions that transform business data (e.g., an order object) into a structured array of command objects. This array describes the content and layout of the receipt, which is then processed by the Plick printing service.
 
-#### Plick Thermal Printer Commands
+This system provides a high-level, declarative way to build complex receipts using components like text, tables, and dividers, with support for CSS-like styling.
 
-The system uses `@plick/electron-pos-printer` which supports ESC/POS command structure for thermal printers:
+### Command Object Structure
 
-**Text Commands:**
-- `text`: Print text with optional styling
-- `newLine`: Line feed control
-- `cut`: Paper cutting (full or partial)
-- `align`: Text alignment control
+The template function must return an array of command objects. The primary types are:
 
-**Styling Commands:**
-- `bold`: Bold text formatting
-- `underline`: Underlined text
-- `size`: Text size control (width, height)
-- `invert`: Inverted text (white on black)
+-   **`text`**: Prints a line of text.
+    -   `value`: The string to print.
+    -   `style`: An object with CSS-like properties (`fontWeight`, `fontSize`, `textAlign`, `fontFamily`, etc.).
+-   **`table`**: Renders structured data in columns. Excellent for itemized lists.
+    -   `tableHeader`: An array of strings or objects for the header row.
+    -   `tableBody`: A 2D array representing the rows and cells.
+    -   `style`: Global styles for the table.
+    -   `tableHeaderStyle`, `tableBodyStyle`: Specific styles for header and body.
+-   **`divider`**: Prints a horizontal separator line.
 
-**Special Commands:**
-- `image`: Image printing (bitmap conversion)
-- `qrcode`: QR code generation
-- `barcode`: Various barcode formats
-- `table`: Tabular data with column alignment
+### Example Template: Kitchen Ticket
 
-#### Template Structure with Plick Commands
+Below is a comprehensive example of a template function, `generateTwKitchenTakeawayTicket`, which generates a kitchen order ticket. It demonstrates dynamic content, helper functions, and advanced table generation for nested item lists.
 
 ```javascript
-import { PosPrinter } from '@plick/electron-pos-printer';
+/**
+ * Enhanced Kitchen Order Ticket Generator for Plick Electron Thermal Printer
+ * Optimized for thermal printing with improved structure and performance
+ *
+ * @param {Object} data - The order data
+ * @param {string} [data.storeName] - Store name
+ * @param {string} [data.orderType] - Order type (TAKEAWAY, DINE-IN, etc.)
+ * @param {string} [data.customerName] - Customer name
+ * @param {string} [data.customerMobile] - Customer mobile number
+ * @param {string} [data.deliveryTime] - Delivery time
+ * @param {string} [data.orderNumber] - Order number
+ * @param {string} [data.orderDate] - Order date
+ * @param {string} [data.orderTime] - Order time
+ * @param {number} [data.pax] - Number of people
+ * @param {string} [data.followUpStatus] - Follow up status
+ * @param {Array} [data.items] - Order items array
+ * @param {string} [data.servedBy] - Server name
+ * @param {string} [data.notes] - Order notes
+ * @param {string} [data.fontFamily] - Font family for printing
+ * @returns {Array} Array of print command objects
+ */
+export function generateTwKitchenTakeawayTicket(data = {}) {
+	// Configuration constants
+	const CONFIG = {
+		paperCharWidth: 42,
+		defaultFont: "Tahoma, Arial, sans-serif",
+		separator: "---------------------------------------------",
+		indentSize: 4,
+	};
 
-export function generateThermalKitchenTicket(data) {
-  return [
-    // Header with restaurant info
-    { type: 'text', value: data.restaurantName, style: { fontType: 'A', fontsize: 2, align: 'CT' }},
-    { type: 'bold', format: true },
-    { type: 'text', value: 'KITCHEN ORDER TICKET', style: { align: 'CT' }},
-    { type: 'bold', format: false },
-    { type: 'newLine' },
-    { type: 'text', value: '================================' },
-    { type: 'newLine' },
-    
-    // Order details
-    { type: 'bold', format: true },
-    { type: 'text', value: `Order #: ${data.orderNumber}` },
-    { type: 'bold', format: false },
-    { type: 'newLine' },
-    { type: 'text', value: `Table: ${data.tableNumber || 'Takeaway'}` },
-    { type: 'newLine' },
-    { type: 'text', value: `Server: ${data.serverName}` },
-    { type: 'newLine' },
-    { type: 'text', value: `Time: ${new Date().toLocaleTimeString()}` },
-    { type: 'newLine' },
-    { type: 'text', value: '--------------------------------' },
-    { type: 'newLine' },
-    
-    // Items list with ESC/POS formatting
-    ...data.items.flatMap(item => [
-      { type: 'bold', format: true },
-      { type: 'size', width: 1, height: 1 },
-      { type: 'text', value: `${item.quantity}x ${item.name}` },
-      { type: 'bold', format: false },
-      { type: 'newLine' },
-      
-      // Item modifiers
-      ...((item.modifiers || []).map(mod => [
-        { type: 'text', value: `   + ${mod}`, style: { fontType: 'B' }},
-        { type: 'newLine' }
-      ]).flat()),
-      
-      // Special instructions
-      ...(item.specialInstructions ? [
-        { type: 'underline', format: true },
-        { type: 'text', value: `   Note: ${item.specialInstructions}` },
-        { type: 'underline', format: false },
-        { type: 'newLine' }
-      ] : [])
-    ]),
-    
-    // Footer
-    { type: 'newLine' },
-    { type: 'text', value: '================================' },
-    { type: 'newLine' },
-    { type: 'newLine' },
-    { type: 'cut', mode: 'PART' }
-  ];
-}
+	/**
+	 * Safe value extraction with defaults
+	 */
+	const safeValue = (value, defaultValue = "") => {
+		return value !== undefined && value !== null
+			? String(value).trim()
+			: defaultValue;
+	};
 
-export function generateThermalCustomerReceipt(data) {
-  const subtotal = data.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const tax = subtotal * (data.taxRate || 0.1);
-  const total = subtotal + tax;
-  
-  return [
-    // Business header with large text
-    { type: 'size', width: 2, height: 2 },
-    { type: 'bold', format: true },
-    { type: 'text', value: data.businessName, style: { align: 'CT' }},
-    { type: 'bold', format: false },
-    { type: 'size', width: 1, height: 1 },
-    { type: 'newLine' },
-    { type: 'text', value: data.businessAddress, style: { align: 'CT' }},
-    { type: 'newLine' },
-    { type: 'text', value: data.businessPhone, style: { align: 'CT' }},
-    { type: 'newLine' },
-    { type: 'newLine' },
-    
-    // Receipt info table using Plick table format
-    {
-      type: 'table',
-      tableHeader: ['Receipt Info', 'Details'],
-      tableBody: [
-        [`Receipt: ${data.receiptNumber}`, new Date().toLocaleDateString()],
-        [`Cashier: ${data.cashierName}`, new Date().toLocaleTimeString()]
-      ],
-      tableHeaderAlign: 'CT',
-      tableBodyAlign: 'LT'
-    },
-    
-    { type: 'text', value: '================================' },
-    { type: 'newLine' },
-    
-    // Items table with proper formatting
-    {
-      type: 'table',
-      tableHeader: ['Item', 'Qty', 'Amount'],
-      tableBody: data.items.map(item => [
-        item.name.substring(0, 18), // Truncate long names
-        item.quantity.toString(),
-        `${(item.price * item.quantity).toFixed(2)}`
-      ]),
-      tableHeaderAlign: 'CT',
-      tableBodyAlign: 'LT'
-    },
-    
-    { type: 'text', value: '--------------------------------' },
-    { type: 'newLine' },
-    
-    // Totals with right alignment
-    { type: 'text', value: `Subtotal:${' '.repeat(15)}${subtotal.toFixed(2)}`, style: { align: 'RT' }},
-    { type: 'newLine' },
-    { type: 'text', value: `Tax:${' '.repeat(20)}${tax.toFixed(2)}`, style: { align: 'RT' }},
-    { type: 'newLine' },
-    { type: 'bold', format: true },
-    { type: 'size', width: 1, height: 2 },
-    { type: 'text', value: `TOTAL:${' '.repeat(16)}${total.toFixed(2)}`, style: { align: 'RT' }},
-    { type: 'bold', format: false },
-    { type: 'size', width: 1, height: 1 },
-    { type: 'newLine' },
-    { type: 'newLine' },
-    
-    // Payment info
-    { type: 'text', value: `Payment: ${data.paymentMethod}` },
-    { type: 'newLine' },
-    { type: 'text', value: `Change: ${data.change?.toFixed(2) || '0.00'}` },
-    { type: 'newLine' },
-    { type: 'newLine' },
-    
-    // Footer messages
-    { type: 'text', value: 'Thank you for your business!', style: { align: 'CT' }},
-    { type: 'newLine' },
-    { type: 'text', value: 'Please come again!', style: { align: 'CT' }},
-    { type: 'newLine' },
-    
-    // QR code for digital receipt (if supported)
-    ...(data.digitalReceiptUrl ? [
-      { type: 'newLine' },
-      { type: 'text', value: 'Scan for digital receipt:', style: { align: 'CT' }},
-      { type: 'newLine' },
-      {
-        type: 'qrcode',
-        value: data.digitalReceiptUrl,
-        settings: {
-          model: 2,
-          errorCorrectionLevel: 'M',
-          moduleSize: 4,
-          margin: 2
-        },
-        style: { align: 'CT' }
-      }
-    ] : []),
-    
-    { type: 'newLine' },
-    { type: 'newLine' },
-    { type: 'newLine' },
-    { type: 'cut', mode: 'FULL' }
-  ];
-}
-```
+	/**
+	 * Format date for thermal printer
+	 */
+	const formatDate = (date) => {
+		if (!date) {
+			return new Date()
+				.toLocaleDateString("en-GB", {
+					day: "2-digit",
+					month: "short",
+					year: "numeric",
+				})
+				.replace(/ /g, "-");
+		}
+		return safeValue(date);
+	};
 
+	/**
+	 * Format time for thermal printer
+	 */
+	const formatTime = (time) => {
+		if (!time) {
+			return new Date().toLocaleTimeString("en-US", {
+				hour: "numeric",
+				minute: "2-digit",
+				hour12: true,
+			});
+		}
+		return safeValue(time);
+	};
 
-    align: 'CT',          // Text alignment
-    bold: true,           // Bold formatting
-    underline: true,      // Underline formatting
-    invert: false         // Inverted colors
-  }
-}
-```
+	/**
+	 * Create a text command object
+	 */
+	const createTextCommand = (value, style = {}) => {
+		return {
+			type: "text",
+			value: safeValue(value),
+			style: {
+				fontFamily: CONFIG.defaultFont,
+				...style,
+			},
+		};
+	};
 
-#### Advanced Plick Features
+    /**
+	 * Get the last N characters of a string
+	 */
+	const getLastNChars = (str, n) => {
+		if (typeof str !== "string") return "";
+		if (n <= 0) return "";
+		return str.slice(-n);
+	};
 
-**Image Printing:**
-```javascript
-export function generateReceiptWithLogo(data) {
-  return [
-    // Print logo image
-    {
-      type: 'image',
-      path: data.logoPath,
-      position: 'center',
-      width: 200,
-      height: 100
-    },
-    
-    // Barcode printing
-    {
-      type: 'barcode',
-      value: data.receiptNumber,
-      format: 'CODE128',
-      position: 'below',
-      width: 'LARGE',
-      height: 50,
-      includetext: true
-    },
-    
-    { type: 'cut', mode: 'PART' }
-  ];
+	/**
+	 * Generate header section
+	 */
+	const generateHeader = (data) => {
+		const commands = [];
+		const fontFamily = safeValue(data.fontFamily, CONFIG.defaultFont);
+
+		commands.push(
+			createTextCommand(safeValue(data.storeName, "TW KITCHEN"), {
+				fontFamily,
+				fontWeight: "bold",
+				fontSize: "14px",
+				textAlign: "center",
+			})
+		);
+		commands.push(
+			createTextCommand(
+				`*** ${safeValue(data.orderType, "TAKEAWAY").toUpperCase()} ***`,
+				{
+					fontFamily,
+					fontWeight: "bold",
+					textAlign: "center",
+				}
+			)
+		);
+		commands.push(
+			createTextCommand(getLastNChars(data.orderNumber, 5), {
+				fontFamily,
+				fontWeight: "bold",
+				fontSize: "16px",
+				textAlign: "center",
+			})
+		);
+
+		const customerInfo = [
+			{ label: "Customer", value: data.customerName },
+			{ label: "Invoice Type", value: data.orderType },
+			{ label: "Mobile No", value: data.customerMobile },
+			{ label: "Delivery Time", value: data.deliveryTime },
+		];
+
+		customerInfo.forEach(({ label, value }) => {
+			if (value) {
+				commands.push(
+					createTextCommand(`${label} : ${safeValue(value)}`, { fontFamily })
+				);
+			}
+		});
+
+		return commands;
+	};
+
+	/**
+	 * Generate order number section
+	 */
+	const generateOrderNumber = (data) => {
+		const commands = [];
+		const fontFamily = safeValue(data.fontFamily, CONFIG.defaultFont);
+
+		commands.push({ type: "divider" });
+		commands.push(
+			createTextCommand(`No# : ${safeValue(data.orderNumber, "N/A")}`, {
+				fontFamily,
+				fontWeight: "bold",
+				fontSize: "16px",
+				textAlign: "center",
+			})
+		);
+		commands.push({ type: "divider" });
+
+		return commands;
+	};
+
+	/**
+	 * Generate date/time and pax section
+	 */
+	const generateDateTime = (data) => {
+		const commands = [];
+		const fontFamily = safeValue(data.fontFamily, CONFIG.defaultFont);
+
+		const orderDate = formatDate(data.orderDate);
+		const orderTime = formatTime(data.orderTime);
+		const paxInfo = data.pax ? `Pax : ${parseFloat(safeValue(data.pax, 0)).toFixed(0)}` : "";
+
+		const leftCol = `Date : ${orderDate} ${orderTime}`;
+		const rightCol = paxInfo;
+		const spaceCount = Math.max(1, CONFIG.paperCharWidth - leftCol.length - rightCol.length);
+
+		commands.push(
+			createTextCommand(`${leftCol}${" ".repeat(spaceCount)}${rightCol}`, { fontFamily })
+		);
+
+		if (data.followUpStatus && safeValue(data.followUpStatus).trim()) {
+			commands.push(
+				createTextCommand(safeValue(data.followUpStatus), {
+					fontFamily,
+					fontWeight: "bold",
+					textAlign: "center",
+				})
+			);
+		}
+
+		return commands;
+	};
+
+	/**
+	 * Build table rows recursively for nested items
+	 */
+	const buildTableRows = (item, indentLevel = 0, subItem = false) => {
+		const rows = [];
+		const isCategory = item.isCategory || (!item.hasOwnProperty("qty") && item.name);
+
+		if (isCategory) {
+			rows.push([
+				{
+					type: "text",
+					value: safeValue(item.name).toUpperCase(),
+					style: { fontWeight: subItem ? "light" : "bold", paddingTop: "4px", textAlign: "left" },
+					colspan: 2,
+				},
+			]);
+		} else {
+			const indent = " ".repeat(indentLevel * CONFIG.indentSize);
+			const namePrefix = indentLevel > 0 ? `${indent}- ` : indent;
+
+			rows.push([
+				{ type: "text", value: safeValue(item.qty, "0"), style: { fontWeight: "bold", fontSize: "14px", textAlign: "left" }},
+				{ type: "text", value: `${namePrefix}${safeValue(item.name)}`, style: { fontWeight: "bold", fontSize: "14px", textAlign: "left" }},
+			]);
+
+			if (item.notes && safeValue(item.notes).trim()) {
+				rows.push([
+					{ type: "text", value: "", style: { textAlign: "left" }},
+					{ type: "text", value: `${indent}(${safeValue(item.notes)})`, style: { fontSize: "12px", fontStyle: "italic", textAlign: "left" }},
+				]);
+			}
+		}
+
+		if (item.subItems && Array.isArray(item.subItems) && item.subItems.length > 0) {
+			item.subItems.forEach((subItem) => {
+				rows.push(...buildTableRows(subItem, indentLevel + 1, true));
+			});
+		}
+
+		return rows;
+	};
+
+	/**
+	 * Generate items table
+	 */
+	const generateItemsTable = (data) => {
+		if (!data.items || !Array.isArray(data.items) || data.items.length === 0) return [];
+		
+		const fontFamily = safeValue(data.fontFamily, CONFIG.defaultFont);
+		const tableBody = data.items.flatMap(item => buildTableRows(item));
+
+		if (tableBody.length === 0) return [];
+
+		return [{
+			type: "table",
+			style: { fontFamily, fontSize: "12px" },
+			tableHeader: [
+				{ type: "text", value: "Qty", style: { textAlign: "left", fontWeight: "bold" }},
+				{ type: "text", value: "Menu", style: { textAlign: "left", fontWeight: "bold" }},
+			],
+			tableBody,
+			tableFooter: [],
+			tableHeaderStyle: { backgroundColor: "#ffffff", color: "#000000" },
+			tableBodyStyle: {},
+			tableFooterStyle: { backgroundColor: "#ffffff", color: "#000000" },
+			tableHeaderCellStyle: { padding: "2px 2px", borderBottom: "1px solid #ccc" },
+			tableBodyCellStyle: { padding: "4px 2px", borderBottom: "1px dash black" },
+			tableFooterCellStyle: {},
+		}];
+	};
+
+	/**
+	 * Generate footer section
+	 */
+	const generateFooter = (data) => {
+		const commands = [];
+		const fontFamily = safeValue(data.fontFamily, CONFIG.defaultFont);
+
+		if (data.servedBy && safeValue(data.servedBy).trim()) {
+			commands.push(
+				createTextCommand(`Served By : ${safeValue(data.servedBy)}`, {
+					fontFamily,
+					fontWeight: "bold",
+					marginTop: "5px",
+				})
+			);
+		}
+
+		const notes = safeValue(data.notes).trim();
+		if (notes) {
+			commands.push({ type: "divider" });
+			commands.push(createTextCommand("Notes :", { fontFamily, fontWeight: "bold" }));
+			commands.push(
+				createTextCommand(notes, {
+					fontFamily,
+					fontWeight: "bold",
+					fontSize: "14px",
+					width: "100%",
+					wordWrap: "break-word",
+					whiteSpace: "normal",
+				})
+			);
+		}
+
+		commands.push({ type: "divider", style: { marginBottom: "4px" } });
+		return commands;
+	};
+
+	// Main function logic - Generate complete kitchen ticket
+	try {
+		const receipt = [
+			...generateHeader(data),
+			...generateOrderNumber(data),
+			...generateDateTime(data),
+			...generateItemsTable(data),
+			...generateFooter(data),
+		];
+		return receipt;
+	} catch (error) {
+		console.error("Error generating kitchen ticket:", error);
+		return [{ type: "text", value: "Error generating ticket", style: { textAlign: "center", color: "red" }}];
+	}
 }
 ```
 
