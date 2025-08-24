@@ -339,7 +339,7 @@ curl -X POST http://localhost:3030/api/print \
 
 ## 🔧 Template Configuration
 
-Templates are modular JavaScript functions that transform business data (e.g., an order object) into a structured array of command objects. This array describes the content and layout of the receipt, which is then processed by the Plick printing service.
+Templates are modular JavaScript functions that transform business data (e.g., an order object) into a structured array of command objects. This array describes the content and layout of the receipt, which is then processed by the `@plick/electron-pos-printer` service. For a complete list of supported commands and advanced options, refer to the official [**`@plick/electron-pos-printer` documentation**](https://www.npmjs.com/package/@plick/electron-pos-printer).
 
 This system provides a high-level, declarative way to build complex receipts using components like text, tables, and dividers, with support for CSS-like styling.
 
