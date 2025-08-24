@@ -339,17 +339,253 @@ curl -X POST http://localhost:3030/api/print \
 
 ### Template Configuration
 
-Templates are JavaScript functions that convert business data into print command
-arrays:
+Templates are modular functions that transform business data into structured print command arrays compatible with the `@plick/electron-pos-printer` package. Each template returns an array of command objects that the Plick thermal printer engine processes sequentially.
+
+#### Plick Thermal Printer Commands
+
+The system uses `@plick/electron-pos-printer` which supports ESC/POS command structure for thermal printers:
+
+**Text Commands:**
+- `text`: Print text with optional styling
+- `newLine`: Line feed control
+- `cut`: Paper cutting (full or partial)
+- `align`: Text alignment control
+
+**Styling Commands:**
+- `bold`: Bold text formatting
+- `underline`: Underlined text
+- `size`: Text size control (width, height)
+- `invert`: Inverted text (white on black)
+
+**Special Commands:**
+- `image`: Image printing (bitmap conversion)
+- `qrcode`: QR code generation
+- `barcode`: Various barcode formats
+- `table`: Tabular data with column alignment
+
+#### Template Structure with Plick Commands
 
 ```javascript
-export function generateReceipt(data) {
-	return [
-		{ type: "println", content: "RECEIPT", align: "CT", style: "B" },
-		{ type: "println", content: `Order: ${data.orderNumber}` },
-		{ type: "feed", lines: 2 },
-		{ type: "cut" },
-	];
+import { PosPrinter } from '@plick/electron-pos-printer';
+
+export function generateThermalKitchenTicket(data) {
+  return [
+    // Header with restaurant info
+    { type: 'text', value: data.restaurantName, style: { fontType: 'A', fontsize: 2, align: 'CT' }},
+    { type: 'bold', format: true },
+    { type: 'text', value: 'KITCHEN ORDER TICKET', style: { align: 'CT' }},
+    { type: 'bold', format: false },
+    { type: 'newLine' },
+    { type: 'text', value: '================================' },
+    { type: 'newLine' },
+    
+    // Order details
+    { type: 'bold', format: true },
+    { type: 'text', value: `Order #: ${data.orderNumber}` },
+    { type: 'bold', format: false },
+    { type: 'newLine' },
+    { type: 'text', value: `Table: ${data.tableNumber || 'Takeaway'}` },
+    { type: 'newLine' },
+    { type: 'text', value: `Server: ${data.serverName}` },
+    { type: 'newLine' },
+    { type: 'text', value: `Time: ${new Date().toLocaleTimeString()}` },
+    { type: 'newLine' },
+    { type: 'text', value: '--------------------------------' },
+    { type: 'newLine' },
+    
+    // Items list with ESC/POS formatting
+    ...data.items.flatMap(item => [
+      { type: 'bold', format: true },
+      { type: 'size', width: 1, height: 1 },
+      { type: 'text', value: `${item.quantity}x ${item.name}` },
+      { type: 'bold', format: false },
+      { type: 'newLine' },
+      
+      // Item modifiers
+      ...((item.modifiers || []).map(mod => [
+        { type: 'text', value: `   + ${mod}`, style: { fontType: 'B' }},
+        { type: 'newLine' }
+      ]).flat()),
+      
+      // Special instructions
+      ...(item.specialInstructions ? [
+        { type: 'underline', format: true },
+        { type: 'text', value: `   Note: ${item.specialInstructions}` },
+        { type: 'underline', format: false },
+        { type: 'newLine' }
+      ] : [])
+    ]),
+    
+    // Footer
+    { type: 'newLine' },
+    { type: 'text', value: '================================' },
+    { type: 'newLine' },
+    { type: 'newLine' },
+    { type: 'cut', mode: 'PART' }
+  ];
+}
+
+export function generateThermalCustomerReceipt(data) {
+  const subtotal = data.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const tax = subtotal * (data.taxRate || 0.1);
+  const total = subtotal + tax;
+  
+  return [
+    // Business header with large text
+    { type: 'size', width: 2, height: 2 },
+    { type: 'bold', format: true },
+    { type: 'text', value: data.businessName, style: { align: 'CT' }},
+    { type: 'bold', format: false },
+    { type: 'size', width: 1, height: 1 },
+    { type: 'newLine' },
+    { type: 'text', value: data.businessAddress, style: { align: 'CT' }},
+    { type: 'newLine' },
+    { type: 'text', value: data.businessPhone, style: { align: 'CT' }},
+    { type: 'newLine' },
+    { type: 'newLine' },
+    
+    // Receipt info table using Plick table format
+    {
+      type: 'table',
+      tableHeader: ['Receipt Info', 'Details'],
+      tableBody: [
+        [`Receipt: ${data.receiptNumber}`, new Date().toLocaleDateString()],
+        [`Cashier: ${data.cashierName}`, new Date().toLocaleTimeString()]
+      ],
+      tableHeaderAlign: 'CT',
+      tableBodyAlign: 'LT'
+    },
+    
+    { type: 'text', value: '================================' },
+    { type: 'newLine' },
+    
+    // Items table with proper formatting
+    {
+      type: 'table',
+      tableHeader: ['Item', 'Qty', 'Amount'],
+      tableBody: data.items.map(item => [
+        item.name.substring(0, 18), // Truncate long names
+        item.quantity.toString(),
+        `${(item.price * item.quantity).toFixed(2)}`
+      ]),
+      tableHeaderAlign: 'CT',
+      tableBodyAlign: 'LT'
+    },
+    
+    { type: 'text', value: '--------------------------------' },
+    { type: 'newLine' },
+    
+    // Totals with right alignment
+    { type: 'text', value: `Subtotal:${' '.repeat(15)}${subtotal.toFixed(2)}`, style: { align: 'RT' }},
+    { type: 'newLine' },
+    { type: 'text', value: `Tax:${' '.repeat(20)}${tax.toFixed(2)}`, style: { align: 'RT' }},
+    { type: 'newLine' },
+    { type: 'bold', format: true },
+    { type: 'size', width: 1, height: 2 },
+    { type: 'text', value: `TOTAL:${' '.repeat(16)}${total.toFixed(2)}`, style: { align: 'RT' }},
+    { type: 'bold', format: false },
+    { type: 'size', width: 1, height: 1 },
+    { type: 'newLine' },
+    { type: 'newLine' },
+    
+    // Payment info
+    { type: 'text', value: `Payment: ${data.paymentMethod}` },
+    { type: 'newLine' },
+    { type: 'text', value: `Change: ${data.change?.toFixed(2) || '0.00'}` },
+    { type: 'newLine' },
+    { type: 'newLine' },
+    
+    // Footer messages
+    { type: 'text', value: 'Thank you for your business!', style: { align: 'CT' }},
+    { type: 'newLine' },
+    { type: 'text', value: 'Please come again!', style: { align: 'CT' }},
+    { type: 'newLine' },
+    
+    // QR code for digital receipt (if supported)
+    ...(data.digitalReceiptUrl ? [
+      { type: 'newLine' },
+      { type: 'text', value: 'Scan for digital receipt:', style: { align: 'CT' }},
+      { type: 'newLine' },
+      {
+        type: 'qrcode',
+        value: data.digitalReceiptUrl,
+        settings: {
+          model: 2,
+          errorCorrectionLevel: 'M',
+          moduleSize: 4,
+          margin: 2
+        },
+        style: { align: 'CT' }
+      }
+    ] : []),
+    
+    { type: 'newLine' },
+    { type: 'newLine' },
+    { type: 'newLine' },
+    { type: 'cut', mode: 'FULL' }
+  ];
+}
+```
+
+
+    align: 'CT',          // Text alignment
+    bold: true,           // Bold formatting
+    underline: true,      // Underline formatting
+    invert: false         // Inverted colors
+  }
+}
+```
+
+#### Advanced Plick Features
+
+**Image Printing:**
+```javascript
+export function generateReceiptWithLogo(data) {
+  return [
+    // Print logo image
+    {
+      type: 'image',
+      path: data.logoPath,
+      position: 'center',
+      width: 200,
+      height: 100
+    },
+    
+    // Barcode printing
+    {
+      type: 'barcode',
+      value: data.receiptNumber,
+      format: 'CODE128',
+      position: 'below',
+      width: 'LARGE',
+      height: 50,
+      includetext: true
+    },
+    
+    { type: 'cut', mode: 'PART' }
+  ];
+}
+```
+
+**Conditional Formatting:**
+```javascript
+export function generateDynamicReceipt(data) {
+  return [
+    // Conditional bold for VIP customers
+    ...(data.customerType === 'VIP' ? [
+      { type: 'bold', format: true },
+      { type: 'invert', format: true }
+    ] : []),
+    
+    { type: 'text', value: `Customer: ${data.customerName}`, style: { align: 'CT' }},
+    
+    ...(data.customerType === 'VIP' ? [
+      { type: 'bold', format: false },
+      { type: 'invert', format: false }
+    ] : []),
+    
+    { type: 'cut', mode: 'FULL' }
+  ];
 }
 ```
 
