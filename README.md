@@ -684,27 +684,73 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 }
 ```
 
-**Conditional Formatting:**
+## 📝 Development
+
+### Adding New Templates
+
+Adding a new receipt or ticket format is a straightforward process involving three steps:
+
+**Step 1: Create the Template Function**
+
+Create a new JavaScript file in the `src/templates/` directory (e.g., `my_new_receipt.js`). This file must export a function that accepts a `data` object as an argument and returns an array of Plick command objects, just like the `generateTwKitchenTakeawayTicket` example.
+
 ```javascript
-export function generateDynamicReceipt(data) {
+// src/templates/my_new_receipt.js
+export function generateMyNewReceipt(data) {
   return [
-    // Conditional bold for VIP customers
-    ...(data.customerType === 'VIP' ? [
-      { type: 'bold', format: true },
-      { type: 'invert', format: true }
-    ] : []),
-    
-    { type: 'text', value: `Customer: ${data.customerName}`, style: { align: 'CT' }},
-    
-    ...(data.customerType === 'VIP' ? [
-      { type: 'bold', format: false },
-      { type: 'invert', format: false }
-    ] : []),
-    
-    { type: 'cut', mode: 'FULL' }
+    { type: 'text', value: 'My New Receipt', style: { fontWeight: 'bold' } },
+    { type: 'text', value: `Order ID: ${data.orderId}` },
+    // ... more command objects
   ];
 }
 ```
+
+**Step 2: Import the New Template**
+
+Open `src/templates/index.js`. This file acts as a central registry for all available templates. Add an `import` statement at the top to include your new template function.
+
+```javascript
+// src/templates/index.js
+import { generateTwKitchenTakeawayTicket } from "./kot_save_recipt.js";
+import { generateChelokababTakeawayReceipt } from "./template_2.js";
+import { generateGoCrispyInvoiceReceipt } from "./inv_recipt2.js";
+import { generateMyNewReceipt } from "./my_new_receipt.js"; // <-- Add this line
+// ... other imports
+```
+
+**Step 3: Register the Template**
+
+In the same file (`src/templates/index.js`), add a new entry to the `templateGenerators` object. The key is a unique string identifier (e.g., `MY_RECEIPT`) that you will use in your API calls. The value is the name of the function you just imported.
+
+```javascript
+// src/templates/index.js
+
+// ... imports
+
+export const templateGenerators = {
+	KOT_SAVE: generateTwKitchenTakeawayTicket,
+	DISPATCH: genarateDispatchRecipt,
+	INV: generateGoCrispyInvoiceReceipt,
+	MY_RECEIPT: generateMyNewReceipt, // <-- Add this line
+	// ... other templates
+};
+
+export function getTemplateFunction(templateType) {
+	const templateFunction = templateGenerators[templateType.toUpperCase()];
+	if (!templateFunction) {
+		throw new Error(`Template type '${templateType}' not found.`);
+	}
+	return templateFunction;
+}
+```
+
+After these steps, the new template is ready to be used. You can now make a `POST /api/print` request with `"templateType": "MY_RECEIPT"` to print your new format.
+
+### Adding New Printer Types
+
+1. Implement discovery logic in `src/print-discovery.js`.
+2. Add print handling in API routes.
+3. Update printer classification logic.
 
 ## 🐛 Troubleshooting
 
