@@ -32,31 +32,40 @@ export function genarateDispatchRecipt(data = {}) {
 		cancel = false
 	) => {
 		const rows = [];
-		const indentSpaces = "  ".repeat(indentLevel);
+		// const indentSpaces = "\u00A0".repeat(indentLevel);
+
+		// let itemNameDisplay = d(item.name).toUpperCase();
+		// if (isSubItem) {
+		// 	itemNameDisplay = `${indentSpaces}- ${itemNameDisplay}`;
+		// } else {
+		// 	itemNameDisplay = `${indentSpaces}${itemNameDisplay}`;
+		// }
+
+		const paddingLeft = `${indentLevel * 5}px`;
 
 		let itemNameDisplay = d(item.name).toUpperCase();
 		if (isSubItem) {
-			itemNameDisplay = `${indentSpaces}- ${itemNameDisplay}`;
-		} else {
-			itemNameDisplay = `${indentSpaces}${itemNameDisplay}`;
+			// Prefix with a dash for sub-items; the space is handled by padding.
+			itemNameDisplay = `- ${itemNameDisplay}`;
 		}
 
 		// Main item row
 		rows.push([
 			{
 				type: "text",
-				value: isSubItem ? `${indentSpaces}${d(item.qty)}` : d(item.qty),
+				value: itemNameDisplay,
 				style: {
 					textAlign: "left",
 					fontWeight: "bold",
 					fontSize: isSubItem ? "12px" : "16px",
+					paddingLeft: paddingLeft,
 				},
 			},
 			{
 				type: "text",
-				value: itemNameDisplay,
+				value: d(item.qty),
 				style: {
-					textAlign: "left",
+					textAlign: "center",
 					fontWeight: "bold",
 					fontSize: isSubItem ? "12px" : "16px",
 				},
@@ -77,16 +86,17 @@ export function genarateDispatchRecipt(data = {}) {
 			rows.push([
 				{
 					type: "text",
-					value: "",
-					style: { textAlign: "left" },
+					value: d(item.nameAr), // Value no longer needs indent spaces
+					style: {
+						textAlign: "left",
+						fontSize: "12px",
+						paddingLeft: paddingLeft, // Use padding for indentation
+					},
 				},
 				{
 					type: "text",
-					value: `${indentSpaces}${d(item.nameAr)}`,
-					style: {
-						textAlign: "center",
-						fontSize: "12px",
-					},
+					value: "",
+					style: { textAlign: "center" },
 				},
 				{
 					type: "text",
@@ -106,11 +116,12 @@ export function genarateDispatchRecipt(data = {}) {
 				},
 				{
 					type: "text",
-					value: `${indentSpaces}(Cancelled)`,
+					value: "(Cancelled)", // Value no longer needs indent spaces
 					style: {
-						textAlign: "center",
+						textAlign: "left",
 						fontWeight: "bold",
 						fontSize: "16px",
+						paddingLeft: paddingLeft, // Use padding for indentation
 					},
 				},
 				{
@@ -127,6 +138,18 @@ export function genarateDispatchRecipt(data = {}) {
 				const subRows = buildItemRows(subItem, indentLevel + 1, true, cancel);
 				rows.push(...subRows);
 			});
+		}
+
+		if (!isSubItem) {
+			rows.push([
+				{
+					type: "text",
+					// This creates a cell that spans all 3 columns
+					value: makeLine("-"),
+					style: { textAlign: "center" },
+					colspan: 3,
+				},
+			]);
 		}
 
 		return rows;
@@ -581,6 +604,21 @@ export function genarateDispatchRecipt(data = {}) {
 	});
 
 	// ===== CUT COMMAND =====
+
+	receipt.push({
+		type: "raw",
+		value: Buffer.from([0x0a, 0x0a, 0x0a, 0x0a]),
+	});
+
+	// receipt.push({
+	// 	type: "raw",
+	// 	value: Buffer.from([0x1d, 0x56, 0x01]),
+	// });
+
+	receipt.push({
+		type: "raw",
+		value: Buffer.from([0x1d, 0x56, 0x00]),
+	});
 	// receipt.push({ type: "raw", format: "hex", value: "0A0A0A" });
 	// receipt.push({ type: "raw", format: "hex", value: "1D5601" });
 

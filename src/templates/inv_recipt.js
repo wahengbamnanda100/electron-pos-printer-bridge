@@ -500,12 +500,23 @@ export function generateGoCrispyInvoiceReceipt(data) {
 				textAlign: "center",
 				fontSize: "10px",
 				marginTop: "5px",
+				marginBottom: "5px",
 			},
 		});
 	}
 
-	receipt.push({ type: "raw", format: "hex", value: "0A0A0A" });
-	receipt.push({ type: "raw", format: "hex", value: "1D5601" });
+	receipt.push({
+		type: "raw",
+		value: Buffer.from([0x0a, 0x0a, 0x0a, 0x0a]),
+	});
+
+	receipt.push({
+		type: "raw",
+		value: Buffer.from([0x1d, 0x56, 0x00]),
+	});
+
+	// receipt.push({ type: "raw", format: "hex", value: "0A0A0A" });
+	// receipt.push({ type: "raw", format: "hex", value: "1D5601" });
 
 	return receipt;
 }

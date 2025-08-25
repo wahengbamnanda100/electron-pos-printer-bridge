@@ -444,6 +444,11 @@ export function generateTwKitchenTakeawayTicket(data = {}) {
 		// 	value: CONFIG.thermalCommands.partialCut,
 		// });
 
+		commands.push({
+			type: "raw",
+			value: Buffer.from([0x1d, 0x56, 0x01]),
+		});
+
 		return commands;
 	};
 
