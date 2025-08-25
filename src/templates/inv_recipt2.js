@@ -99,25 +99,11 @@ export function generateGoCrispyInvoiceReceipt(data) {
 		})
 	);
 
-	// Contact information - bilingual
-	// receipt.push(
-	// 	createBilingualText("Tel :", "تليفون :", {
-	// 		fontSize: "10px",
-	// 		textAlign: "center",
-	// 	})
-	// );
 	receipt.push({
 		type: "text",
 		value: "Tel : : تليفون",
 		style: { ...baseFont, textAlign: "center", whiteSpace: "pre-line" },
 	});
-
-	// receipt.push(
-	// 	createBilingualText("Fax :", "فاكس :", {
-	// 		fontSize: "10px",
-	// 		textAlign: "center",
-	// 	})
-	// );
 
 	receipt.push({
 		type: "text",
@@ -269,8 +255,10 @@ export function generateGoCrispyInvoiceReceipt(data) {
 		},
 	});
 
-	// ===== ITEMS TABLE SECTION =====
+	// ===== ITEMS TABLE SECTION (MODIFIED) =====
 	const itemTableBody = items.flatMap((item) => {
+		const rows = [];
+
 		const mainItemRow = [
 			{
 				type: "text",
@@ -292,21 +280,21 @@ export function generateGoCrispyInvoiceReceipt(data) {
 				style: { textAlign: "right" },
 			},
 		];
+		rows.push(mainItemRow);
 
-		const rows = [mainItemRow];
-
-		// Add subitems if they exist
+		// Add subitems if they exist, using padding for indentation
 		if (item.subitems?.length) {
 			item.subitems.forEach((sub) => {
 				rows.push([
 					{
 						type: "text",
 						value: sub.nameAr
-							? `   --${sub.name}\n   ${sub.nameAr}`
-							: `   --${sub.name}`,
+							? `-- ${sub.name}\n-- ${sub.nameAr}`
+							: `-- ${sub.name}`,
 						style: {
 							textAlign: "left",
 							whiteSpace: "pre-line",
+							paddingLeft: "15px", // Indentation with padding
 							...(sub.nameAr && { direction: "ltr" }),
 						},
 					},
@@ -323,6 +311,16 @@ export function generateGoCrispyInvoiceReceipt(data) {
 				]);
 			});
 		}
+
+		// Add a separator line after each main item block
+		rows.push([
+			{
+				type: "text",
+				value: "-".repeat(40),
+				style: { textAlign: "center" },
+				colspan: 3, // Make the cell span all 3 columns
+			},
+		]);
 
 		return rows;
 	});
@@ -556,8 +554,15 @@ export function generateGoCrispyInvoiceReceipt(data) {
 	}
 
 	// Printer control commands
-	receipt.push({ type: "raw", format: "hex", value: "0A0A0A" });
-	receipt.push({ type: "raw", format: "hex", value: "1D5601" });
+	receipt.push({
+		type: "raw",
+		value: Buffer.from([0x0a, 0x0a, 0x0a, 0x0a]),
+	});
+
+	receipt.push({
+		type: "raw",
+		value: Buffer.from([0x1d, 0x56, 0x00]),
+	});
 
 	return receipt;
 }
